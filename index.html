@@ -38,11 +38,12 @@ body::after{content:'';position:fixed;inset:0;background-image:url("data:image/s
 .app{display:flex;flex-direction:column;height:100vh;padding:8px 12px 6px;}
 
 /* Header */
-.hdr{display:flex;align-items:center;gap:10px;margin-bottom:7px;flex-shrink:0;}
+.hdr{display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-shrink:0;flex-wrap:wrap;}
 .logo{font-family:'Playfair Display',serif;font-size:19px;font-weight:900;color:var(--gold);letter-spacing:.1em;text-shadow:0 0 16px var(--glow);}
 .logo i{font-style:italic;color:var(--amber);}
 .hbtn{padding:3px 9px;font-size:9px;letter-spacing:.12em;background:var(--panel);border:1px solid var(--border);color:var(--cream);cursor:pointer;border-radius:3px;transition:all .13s;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;}
 .hbtn.on{background:var(--amber);color:#000;border-color:var(--gold);}
+.wrow{display:flex;align-items:center;gap:4px;margin-bottom:4px;flex-shrink:0;flex-wrap:wrap;}
 .wbtn{padding:3px 8px;font-size:9px;letter-spacing:.08em;background:var(--panel);border:1px solid var(--border);color:var(--cream);cursor:pointer;border-radius:3px;transition:all .15s;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;flex-shrink:0;}
 .sp{flex:1;}
 
@@ -132,14 +133,15 @@ body::after{content:'';position:fixed;inset:0;background-image:url("data:image/s
   <div class="logo">Steel <i>Guitar</i> FX</div>
   <button class="hbtn on" id="t-lap" onclick="setTuning('lap6',this)">LAP 6</button>
   <button class="hbtn"    id="t-e9"  onclick="setTuning('e9',this)">E9 PEDAL</button>
-  <div style="width:1px;height:16px;background:var(--border);flex-shrink:0;margin:0 2px;"></div>
+  <div class="sp"></div>
+</div>
+<div class="wrow">
   <button class="wbtn" id="w-maple"    onclick="setWood('maple',this)">Maple</button>
   <button class="wbtn" id="w-mahogany" onclick="setWood('mahogany',this)">Mahogany</button>
   <button class="wbtn" id="w-koa"      onclick="setWood('koa',this)">Koa</button>
   <button class="wbtn" id="w-rosewood" onclick="setWood('rosewood',this)">Rosewood</button>
   <button class="wbtn" id="w-walnut"   onclick="setWood('walnut',this)">Walnut</button>
   <button class="wbtn" id="w-ash"      onclick="setWood('ash',this)">Ash</button>
-  <div class="sp"></div>
 </div>
 
 <div class="tp">
@@ -914,18 +916,21 @@ function seqTouchStart(e){
   let moved=false;
 
   // Long press timer (500ms) → duration mode
-  const noteIsOn=N()[si][t].on;
+  let currentTouchX=touchX;
   longPressTimer=setTimeout(()=>{
     if(!N()[si][t].on) return; // only stretch existing notes
     isDurMode=true;
     durDragging=true; durSi=si; durT=t;
-    durStartX=touchX; durStartDur=N()[si][t].dur||1;
+    durStartX=currentTouchX; // use current finger position
+    durStartDur=N()[si][t].dur||1;
+    moved=false; // reset moved so swipe is clean
     if(navigator.vibrate) navigator.vibrate(40);
     cell.style.outline='2px solid #fff';
     setTimeout(()=>cell.style.outline='',300);
   },500);
 
   const onMove=ev=>{
+    currentTouchX=ev.touches[0].clientX;
     const dx=Math.abs(ev.touches[0].clientX-touchX);
     const dy=Math.abs(ev.touches[0].clientY-touchY);
     if(dx>8||dy>8) moved=true;
