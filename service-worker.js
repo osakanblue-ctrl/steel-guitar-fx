@@ -1,8 +1,12 @@
-const CACHE = 'steelguitarfx-v1';
+const CACHE = 'steelguitarfx-v2';
 const ASSETS = [
   './',
   './index.html',
+  './style.css',
+  './synth.js',
   './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
   'https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,900;1,700&family=IBM+Plex+Mono:wght@400;600&display=swap'
 ];
 
