@@ -1035,8 +1035,16 @@ defPat.forEach((steps,si)=>{
   });
 });
 buildSeqGrid();
-resizeCanvases();
+// iPad/iOS対応: DOMが完全に準備されてから描画
+if(document.readyState==='complete'){
+  resizeCanvases();
+} else {
+  window.addEventListener('load', resizeCanvases);
+}
 window.addEventListener('resize', resizeCanvases);
+// iOS Safari追加対応
+setTimeout(resizeCanvases, 100);
+setTimeout(resizeCanvases, 500);
 </script>
 </body>
 </html>
