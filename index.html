@@ -78,7 +78,7 @@ body::after{content:'';position:fixed;inset:0;background-image:url("data:image/s
 
 /* String hit overlay */
 .hit-canvas{position:absolute;inset:0;pointer-events:none;}
-.interact-layer{position:absolute;inset:0;pointer-events:all;cursor:crosshair;touch-action:none;-webkit-user-select:none;user-select:none;}
+.interact-layer{position:absolute;inset:0;pointer-events:none;touch-action:none;-webkit-user-select:none;user-select:none;}
 
 /* Sequencer overlay */
 .seq-overlay{position:absolute;inset:0;background:rgba(5,4,2,.92);border-radius:11px;display:none;flex-direction:column;padding:8px 6px 6px;overflow:hidden;}
@@ -640,67 +640,39 @@ function getSlideX(){
 }
 
 const il=document.getElementById('interact-layer');
+const gWrap=document.getElementById('guitar-wrap');
 
-il.addEventListener('mousedown',e=>{
-  const r=il.getBoundingClientRect();
-  const mx=(e.clientX-r.left)*(gc.width/r.width);
-  const my=(e.clientY-r.top)*(gc.height/r.height);
-  // Check slide bar hit (wide hit area)
+function getGuitarCoords(clientX,clientY){
+  const r=gWrap.getBoundingClientRect();
+  return {mx:(clientX-r.left)*(gc.width/r.width),my:(clientY-r.top)*(gc.height/r.height)};
+}
+
+gWrap.addEventListener('mousedown',e=>{
+  if(mode==='seq') return;
+  const {mx,my}=getGuitarCoords(e.clientX,e.clientY);
   if(Math.abs(mx-getSlideX())<20&&my>4&&my<gc.height-4){
     slideDragging=true; slideStartX=e.clientX; slideStartPct=slidePct;
-    il.style.cursor='ew-resize';
+    gWrap.style.cursor='ew-resize';
     return;
   }
-  // Check string hit (play mode)
   if(mode==='play'){
     const strs=TUNINGS[tuning].strings;
     for(let si=0;si<strs.length;si++){
-      if(Math.abs(my-stringYs[si])<18){
-        pluckString(si,mx);
-        break;
-      }
+      if(Math.abs(my-stringYs[si])<18){pluckString(si,mx);break;}
     }
   }
 });
 
-document.addEventListener('mousemove',e=>{
-  if(durDragging){
-    const dx=e.clientX-durStartX;
-    const CELL_W=26;
-    const newDur=Math.max(1,Math.min(numSteps-durT, durStartDur+Math.round(dx/(CELL_W+2))));
-    if(newDur!==N()[durSi][durT].dur){
-      N()[durSi][durT].dur=newDur;
-      renderNoteBlock(durSi,durT);
-      if(mode==='play') drawGuitar();
-    }
-    return;
-  }
-  if(!slideDragging) return;
-  const wrap=document.getElementById('guitar-wrap');
-  const r=wrap.getBoundingClientRect();
-  const strLen=gc.width-90;
-  const dx=(e.clientX-slideStartX)*(gc.width/r.width);
-  slidePct=Math.max(0,Math.min(1,slideStartPct+dx/strLen));
-  updateSlideFX();
-  drawGuitar();
-});
-document.addEventListener('mouseup',()=>{
-  if(slideDragging){slideDragging=false;il.style.cursor='crosshair';}
-  seqDragging=false; velDragging=false; durDragging=false;
-});
-
-// Touch support
-il.addEventListener('touchstart',e=>{
+gWrap.addEventListener('touchstart',e=>{
+  if(mode==='seq') return;
   e.preventDefault();
-  const r=il.getBoundingClientRect();
-  const tx=(e.touches[0].clientX-r.left)*(gc.width/r.width);
-  const ty=(e.touches[0].clientY-r.top)*(gc.height/r.height);
-  if(Math.abs(tx-getSlideX())<24&&ty>4&&ty<gc.height-4){
+  const {mx:tx,my:ty}=getGuitarCoords(e.touches[0].clientX,e.touches[0].clientY);
+  if(Math.abs(tx-getSlideX())<28&&ty>4&&ty<gc.height-4){
     slideDragging=true; slideStartX=e.touches[0].clientX; slideStartPct=slidePct; return;
   }
   if(mode==='play'){
     TUNINGS[tuning].strings.forEach((_,si)=>{
-      if(Math.abs(ty-stringYs[si])<18) pluckString(si,tx);
+      if(Math.abs(ty-stringYs[si])<22) pluckString(si,tx);
     });
   }
 },{passive:false});
@@ -713,7 +685,11 @@ document.addEventListener('touchmove',e=>{
   slidePct=Math.max(0,Math.min(1,slideStartPct+dx/strLen));
   updateSlideFX(); drawGuitar();
 },{passive:true});
-document.addEventListener('touchend',()=>{slideDragging=false;});
+document.addEventListener('touchend',()=>{slideDragging=false;gWrap.style.cursor='';});
+document.addEventListener('mouseup',()=>{
+  if(slideDragging){slideDragging=false;gWrap.style.cursor='';}
+  seqDragging=false; velDragging=false; durDragging=false;
+});
 
 function updateSlideFX(){
   const s=(slidePct-.35)*28;
@@ -865,20 +841,49 @@ async function buildReverb(){
   dryGain.connect(ctx_a.destination);
 }
 function playNote(freq,velN,centsOff,fgain,dur){
-function playNote(freq,velN,centsOff,fgain,dur){
   if(!ctx_a)return;
   const vol=Math.pow(10,FX.out/20)*.5*velN;
   const now=ctx_a.currentTime;
   const ratio=Math.pow(2,centsOff/1200);
   const f=freq*ratio;
+
+  // Karplus-Strong弦シミュレーション
+  const bufSize=Math.max(2,Math.round(ctx_a.sampleRate/f));
+  const ksBuf=ctx_a.createBuffer(1,bufSize,ctx_a.sampleRate);
+  const ksData=ksBuf.getChannelData(0);
+  for(let i=0;i<bufSize;i++) ksData[i]=Math.random()*2-1;
+
+  const ks=ctx_a.createBufferSource();
+  ks.buffer=ksBuf;
+  ks.loop=true;
+
+  // 弦の減衰フィルター
+  const ksFilter=ctx_a.createBiquadFilter();
+  ksFilter.type='lowpass';
+  ksFilter.frequency.value=f*6;
+  ksFilter.Q.value=0.5;
+
+  // トーンフィルター
+  const toneFilter=ctx_a.createBiquadFilter();
+  toneFilter.type='lowpass';
+  toneFilter.frequency.value=2200+fgain*60;
+  toneFilter.Q.value=0.8;
+
+  // エンベロープ
+  const env=ctx_a.createGain();
   env.gain.setValueAtTime(0,now);
-  env.gain.linearRampToValueAtTime(vol,now+.004);
-  env.gain.setTargetAtTime(vol*.55,now+.015,.1);
-  env.gain.setTargetAtTime(0,now+dur*.45,dur*.28);
-  o1.connect(flt);o2.connect(flt);flt.connect(env);
+  env.gain.linearRampToValueAtTime(vol,now+.001);
+  env.gain.setTargetAtTime(vol*.7,now+.001,.08);
+  env.gain.setTargetAtTime(0,now+dur*.5,dur*.35);
+
+  ks.connect(ksFilter);
+  ksFilter.connect(toneFilter);
+  toneFilter.connect(env);
   env.connect(dryGain||ctx_a.destination);
   if(reverbConv) env.connect(reverbConv);
-  o1.start(now);o2.start(now);o1.stop(now+dur+.4);o2.stop(now+dur+.4);
+
+  ks.start(now);
+  ks.stop(now+dur+.8);
 }
 
 // ════════════════════════════════════════════════
@@ -1035,16 +1040,8 @@ defPat.forEach((steps,si)=>{
   });
 });
 buildSeqGrid();
-// iPad/iOS対応: DOMが完全に準備されてから描画
-if(document.readyState==='complete'){
-  resizeCanvases();
-} else {
-  window.addEventListener('load', resizeCanvases);
-}
+resizeCanvases();
 window.addEventListener('resize', resizeCanvases);
-// iOS Safari追加対応
-setTimeout(resizeCanvases, 100);
-setTimeout(resizeCanvases, 500);
 </script>
 </body>
 </html>
