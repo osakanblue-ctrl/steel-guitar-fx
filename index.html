@@ -914,13 +914,13 @@ function seqTouchStart(e){
   let moved=false;
 
   // Long press timer (500ms) → duration mode
+  const noteIsOn=N()[si][t].on;
   longPressTimer=setTimeout(()=>{
+    if(!N()[si][t].on) return; // only stretch existing notes
     isDurMode=true;
     durDragging=true; durSi=si; durT=t;
     durStartX=touchX; durStartDur=N()[si][t].dur||1;
-    // Vibrate feedback
     if(navigator.vibrate) navigator.vibrate(40);
-    // Visual feedback: flash the cell
     cell.style.outline='2px solid #fff';
     setTimeout(()=>cell.style.outline='',300);
   },500);
@@ -957,10 +957,11 @@ function seqTouchStart(e){
     }
   };
 
+  const touchStartTime=Date.now();
   const onEnd=()=>{
     clearTimeout(longPressTimer);
-    if(!isDurMode&&!moved){
-      // Short tap: toggle ON/OFF
+    const elapsed=Date.now()-touchStartTime;
+    if(!isDurMode&&!moved&&elapsed<450){
       seqDragging=true;
       seqDragVal=!N()[si][t].on;
       toggleNote(si,t,seqDragVal);
