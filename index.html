@@ -869,11 +869,11 @@ function playNote(freq,velN,centsOff,fgain,dur){
   const vol=Math.pow(10,FX.out/20)*.16*velN,now=ctx_a.currentTime;
   const ratio=Math.pow(2,centsOff/1200);
   const o1=ctx_a.createOscillator(); o1.type='sawtooth'; o1.frequency.value=freq*ratio;
-  const o2=ctx_a.createOscillator(); o2.type='triangle'; o2.frequency.value=freq*ratio*1.003;
-  const flt=ctx_a.createBiquadFilter(); flt.type='lowshelf'; flt.frequency.value=2800; flt.gain.value=fgain;
+  const o2=ctx_a.createOscillator(); o2.square'; o2.frequency.value=freq*ratio*1.006;
+  const flt=ctx_a.createBiquadFilter(); flt.type='lowpass'; flt.frequency.value=1800; flt.gain.value=fgain;
   const env=ctx_a.createGain();
   env.gain.setValueAtTime(0,now);
-  env.gain.linearRampToValueAtTime(vol,now+.012);
+  env.gain.linearRampToValueAtTime(vol,now+.004);
   env.gain.setTargetAtTime(vol*.55,now+.015,.1);
   env.gain.setTargetAtTime(0,now+dur*.45,dur*.28);
   o1.connect(flt);o2.connect(flt);flt.connect(env);
