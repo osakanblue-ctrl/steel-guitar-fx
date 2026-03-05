@@ -1,0 +1,26 @@
+{
+  "name": "Steel Guitar FX",
+  "short_name": "SteelGuitarFX",
+  "description": "Lap Steel & Pedal Steel Guitar Effect Sequencer",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#080604",
+  "theme_color": "#080604",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["music", "utilities"],
+  "lang": "ja"
+}
