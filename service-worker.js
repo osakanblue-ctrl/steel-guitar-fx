@@ -1,4 +1,4 @@
-const CACHE = 'steelguitarfx-v5';
+const CACHE = 'steelguitarfx-v6';
 const ASSETS = [
   './',
   './index.html',
