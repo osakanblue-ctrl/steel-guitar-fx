@@ -1,4 +1,4 @@
-// Disabled - no caching v2
+// Disabled - no caching v3
 self.addEventListener('install', e => self.skipWaiting());
 self.addEventListener('activate', e => {
   e.waitUntil(
