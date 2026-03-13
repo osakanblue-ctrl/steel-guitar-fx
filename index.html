@@ -93,6 +93,7 @@ select{background:var(--panel);border:1px solid var(--border);color:var(--cream)
 .fx-lbl{font-size:8px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;}
 .fx-val{font-size:9px;color:var(--amber);text-align:right;}
 input[type=range]{width:100%;height:4px;accent-color:var(--amber);cursor:pointer;}
+#dbg{position:fixed;bottom:0;left:0;right:0;height:120px;background:rgba(0,0,0,.85);color:#0f0;font-size:9px;font-family:monospace;overflow-y:auto;padding:4px;z-index:9999;pointer-events:none;}
 </style>
 </head>
 <body>
@@ -196,8 +197,19 @@ input[type=range]{width:100%;height:4px;accent-color:var(--amber);cursor:pointer
   <div id="seq-grid-wrap"><div id="seq-grid"></div></div>
 </div>
 
+<div id="dbg"></div>
+
 <script>
 'use strict';
+// On-screen debug log (no PC needed)
+const _dbg=document.getElementById('dbg');
+let _dbgLines=[];
+function dbgLog(msg){
+  _dbgLines.push(msg);
+  if(_dbgLines.length>30) _dbgLines.shift();
+  _dbg.textContent=_dbgLines.join('\n');
+  _dbg.scrollTop=_dbg.scrollHeight;
+}
 // ════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ════════════════════════════════════════════════
@@ -675,7 +687,7 @@ gWrap.addEventListener('touchstart',e=>{
     const t=e.changedTouches[i];
     const {mx,my}=getGuitarCoords(t.clientX,t.clientY);
     const nearBar=Math.abs(mx-getSlideX())<28&&my>4&&my<gc.height-4;
-    console.log(`[TS] id=${t.identifier} mx=${mx.toFixed(0)} slideX=${getSlideX().toFixed(0)} nearBar=${nearBar} existing=${activeTouches[t.identifier]}`);
+    dbgLog(`[TS] id=${t.identifier} mx=${mx.toFixed(0)} slideX=${getSlideX().toFixed(0)} near=${nearBar} was=${activeTouches[t.identifier]}`);
     if(nearBar){
       activeTouches[t.identifier]='bar';
       slideDragging=true; slideStartX=t.clientX; slideStartPct=slidePct;
@@ -687,7 +699,7 @@ gWrap.addEventListener('touchstart',e=>{
       });
     }
   }
-  console.log('[TS] activeTouches:', JSON.stringify(activeTouches), 'slideDragging:', slideDragging);
+  dbgLog(`[TS] map=${JSON.stringify(activeTouches)} drag=${slideDragging}`);
 },{passive:false});
 
 gWrap.addEventListener('touchmove',e=>{
@@ -696,7 +708,7 @@ gWrap.addEventListener('touchmove',e=>{
   for(let i=0;i<e.changedTouches.length;i++){
     const t=e.changedTouches[i];
     const role=activeTouches[t.identifier];
-    if(role!=='bar') console.log(`[TM] id=${t.identifier} role=${role} - SKIPPED`);
+    if(role!=='bar') dbgLog(`[TM] id=${t.identifier} role=${role||'none'} SKIP`);
     if(role==='bar'&&slideDragging){
       const r=gWrap.getBoundingClientRect();
       const dx=(t.clientX-slideStartX)*(gc.width/r.width);
@@ -1181,7 +1193,7 @@ function animVU(){
 // ════════════════════════════════════════════════
 // CONTROLS
 // ════════════════════════════════════════════════
-document.getElementById('play-btn').addEventListener('click',()=>{playing?stopSeq():startSeq();});
+// play-btn click handled via onclick in HTML
 function toggleLoop(){loopOn=!loopOn; document.getElementById('loop-btn').classList.toggle('on',loopOn);}
 function toggleShot(){oneShot=!oneShot; document.getElementById('shot-btn').classList.toggle('on',oneShot);}
 
