@@ -133,6 +133,9 @@ input[type=range]{width:100%;height:4px;accent-color:var(--amber);cursor:pointer
     <canvas id="gc"></canvas>
     <canvas id="gc2"></canvas>
     <div id="interact-layer"></div>
+    <!-- WHY bar-layer: completely independent touch target for slide bar.
+         Prevents bar touch from mixing with string touches in activeTouches. -->
+    <div id="bar-layer" style="position:absolute;top:0;bottom:0;width:40px;touch-action:none;-webkit-user-select:none;user-select:none;cursor:ew-resize;z-index:20;"></div>
   </div>
 
   <!-- MODE + PEDAL ROW -->
@@ -388,6 +391,50 @@ const gc2=document.getElementById('gc2');
 const hctx=gc2.getContext('2d');
 const gWrap=document.getElementById('guitar-wrap');
 const interactLayer=document.getElementById('interact-layer');
+const barLayer=document.getElementById('bar-layer');
+
+// ════════════════════════════════════════════════
+// BAR LAYER - independent touch handler for slide bar
+// WHY: Separate div with its own touchstart/move/end.
+// No shared state with string touches. stopPropagation prevents
+// bar touches from reaching gWrap's handlers at all.
+// ════════════════════════════════════════════════
+function updateBarLayerX(){
+  // Position bar-layer div centered on current slide bar X
+  const r=gWrap.getBoundingClientRect();
+  const pct=r.width/gc.width;
+  const cx=getSlideX()*pct;
+  barLayer.style.left=Math.max(0,cx-20)+'px';
+}
+
+barLayer.addEventListener('touchstart',e=>{
+  if(mode==='seq') return;
+  e.preventDefault();
+  e.stopPropagation(); // WHY: don't let this touch reach gWrap
+  const t=e.changedTouches[0];
+  slideDragging=true;
+  slideStartX=t.clientX;
+  slideStartPct=slidePct;
+  dbgLog(`[BAR] touchstart id=${t.identifier}`);
+},{passive:false});
+
+barLayer.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  e.stopPropagation();
+  const t=e.changedTouches[0];
+  const r=gWrap.getBoundingClientRect();
+  const dx=(t.clientX-slideStartX)*(gc.width/r.width);
+  slidePct=Math.max(0,Math.min(1,slideStartPct+dx/(gc.width-90)));
+  updateSlideFX();
+  updateBarLayerX();
+  schedDraw();
+},{passive:false});
+
+barLayer.addEventListener('touchend',e=>{
+  e.stopPropagation();
+  slideDragging=false;
+  dbgLog(`[BAR] touchend`);
+},{passive:false});
 
 // ════════════════════════════════════════════════
 // HELPERS
@@ -436,7 +483,11 @@ let _rafPending=false;
 function schedDraw(){
   if(_rafPending) return;
   _rafPending=true;
-  requestAnimationFrame(()=>{_rafPending=false; drawGuitar();});
+  requestAnimationFrame(()=>{
+    _rafPending=false;
+    drawGuitar();
+    if(typeof updateBarLayerX==='function') updateBarLayerX();
+  });
 }
 
 function drawGuitar(){
@@ -468,6 +519,9 @@ function drawGuitar(){
 
   // Strings
   strs.forEach((str,i)=>{drawString(gctx,strStart,stringYs[i],strEnd,stringYs[i],str,i);});
+
+  // Position markers (fret position guides)
+  drawPositionMarkers(gctx,W,H);
 
   // Slide bar
   drawSlideBar(gctx,W,H);
@@ -523,6 +577,42 @@ function drawPeg(ctx,x,y){
   ctx.strokeStyle='rgba(200,160,40,.4)'; ctx.lineWidth=1; ctx.stroke();
   ctx.beginPath(); ctx.arc(x,y,2,0,Math.PI*2);
   ctx.fillStyle='#c8a830'; ctx.fill();
+}
+
+// WHY position markers: Steel guitar has no frets, but position dots
+// help the player know where specific notes/intervals are.
+// Standard positions: 3,5,7,10,12,15,17 (like guitar fret dots)
+function drawPositionMarkers(ctx,W,H){
+  const strStart=60, strLen=W-90;
+  const positions=[3,5,7,10,12,15,17];
+  const strAreaTop=H*.18, strAreaBot=H*.82;
+  ctx.save();
+  positions.forEach(pos=>{
+    // Map position to X: pos 0=nut(strStart), pos 24=bridge(strEnd)
+    const x=strStart+(pos/24)*strLen;
+    // Faint vertical line
+    ctx.strokeStyle='rgba(255,220,100,.12)';
+    ctx.lineWidth=1;
+    ctx.setLineDash([3,3]);
+    ctx.beginPath();
+    ctx.moveTo(x,strAreaTop-4);
+    ctx.lineTo(x,strAreaBot+4);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Position number below strings
+    ctx.font='7px IBM Plex Mono,monospace';
+    ctx.fillStyle='rgba(200,160,60,.5)';
+    ctx.textAlign='center';
+    ctx.fillText(pos,x,strAreaBot+14);
+    // Dot at top for pos 12 (octave)
+    if(pos===12){
+      ctx.beginPath();
+      ctx.arc(x,strAreaTop-8,3,0,Math.PI*2);
+      ctx.fillStyle='rgba(232,180,60,.4)';
+      ctx.fill();
+    }
+  });
+  ctx.restore();
 }
 
 function drawSlideBar(ctx,W,H){
