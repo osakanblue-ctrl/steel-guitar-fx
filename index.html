@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Steel Guitar FX</title>
+<link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+:root{
+  --bg:#0e0c09;--panel:#1a1710;--border:#2e2a1e;
+  --amber:#e8922a;--cream:#f0e8d0;--dim:#666050;
+  --radius:10px;
+}
+html,body{height:100%;background:var(--bg);color:var(--cream);font-family:'IBM Plex Mono',monospace;overflow:hidden;touch-action:none;}
+#app{display:flex;flex-direction:column;height:100%;max-width:900px;margin:0 auto;padding:6px;gap:6px;}
+
+/* ── HEADER ── */
+#hdr{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.hbtn{padding:4px 10px;font-size:10px;letter-spacing:.1em;background:var(--panel);border:1px solid var(--border);color:var(--dim);cursor:pointer;border-radius:4px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;transition:all .15s;}
+.hbtn.on{border-color:var(--amber);color:var(--amber);}
+#hdr-title{font-size:11px;letter-spacing:.2em;color:var(--dim);margin-right:4px;}
+#pitch-big{font-size:13px;font-weight:600;color:var(--amber);min-width:52px;text-align:right;letter-spacing:.05em;}
+
+/* ── GUITAR CANVAS WRAP ── */
+#guitar-wrap{position:relative;flex:0 0 auto;border-radius:var(--radius);overflow:hidden;touch-action:none;cursor:crosshair;}
+#guitar-wrap canvas{position:absolute;top:0;left:0;width:100%;height:100%;}
+#gc{border-radius:var(--radius);}
+#gc2{pointer-events:none;}
+#interact-layer{position:absolute;inset:0;touch-action:none;-webkit-user-select:none;user-select:none;}
+
+/* ── WOOD + BAR ROW ── */
+.wrow{display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+.wbtn{padding:3px 8px;font-size:9px;letter-spacing:.08em;background:var(--panel);border:1px solid var(--border);color:var(--cream);cursor:pointer;border-radius:3px;transition:all .15s;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;flex-shrink:0;}
+.wbtn.on{border-color:var(--amber);}
+.wrow-label{font-size:9px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;margin-right:2px;}
+.bbtn{padding:3px 8px;font-size:9px;letter-spacing:.08em;background:var(--panel);border:1px solid var(--border);color:var(--dim);cursor:pointer;border-radius:3px;transition:all .15s;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;flex-shrink:0;}
+.bbtn.on{border-color:#aaa;color:#ccc;}
+
+/* ── MODE + PEDAL ROW ── */
+#mode-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.mbtn{padding:4px 10px;font-size:10px;letter-spacing:.08em;background:var(--panel);border:1px solid var(--border);color:var(--dim);cursor:pointer;border-radius:4px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;transition:all .15s;}
+.mbtn.on{border-color:var(--amber);color:var(--amber);}
+.ped-label{font-size:9px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;margin-left:4px;}
+.pbtn{padding:3px 10px;font-size:10px;font-weight:600;letter-spacing:.1em;background:#1a0e00;border:1px solid #6a4a10;color:#c89030;cursor:pointer;border-radius:4px;transition:all .1s;font-family:'IBM Plex Mono',monospace;user-select:none;-webkit-user-select:none;}
+.pbtn.ped-on{background:#c89030;border-color:#f8d060;color:#1a0a00;}
+
+/* ── SEQUENCER OVERLAY ── */
+#seq-overlay{position:fixed;inset:0;background:var(--bg);z-index:100;display:none;flex-direction:column;padding:8px;gap:6px;overflow-y:auto;}
+#seq-overlay.open{display:flex;}
+#seq-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+
+/* SEQ CONTROLS */
+.seq-ctl{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+#play-btn{width:36px;height:36px;border-radius:50%;background:var(--amber);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+#play-btn svg{color:#000;}
+#bdisp{font-size:11px;color:var(--amber);min-width:36px;letter-spacing:.05em;}
+.ctl-btn{padding:3px 8px;font-size:9px;letter-spacing:.08em;background:var(--panel);border:1px solid var(--border);color:var(--dim);cursor:pointer;border-radius:3px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;transition:all .15s;}
+.ctl-btn.on{border-color:var(--amber);color:var(--amber);}
+#bpm-in{width:48px;background:var(--panel);border:1px solid var(--border);color:var(--cream);font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 4px;border-radius:3px;text-align:center;}
+select{background:var(--panel);border:1px solid var(--border);color:var(--cream);font-family:'IBM Plex Mono',monospace;font-size:10px;padding:2px 4px;border-radius:3px;cursor:pointer;}
+
+/* VU METER */
+#vu{height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:2px;}
+#vu-fill{height:100%;width:0%;background:linear-gradient(to right,#4a8a2a,#e8b020,#c83020);transition:width .05s;border-radius:2px;}
+
+/* SEQ GRID */
+#seq-grid-wrap{overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch;}
+#seq-grid{display:flex;flex-direction:column;gap:2px;min-width:max-content;}
+.srow{display:flex;align-items:center;gap:2px;}
+.slbl{font-size:8px;color:var(--dim);width:52px;text-align:right;padding-right:6px;letter-spacing:.05em;flex-shrink:0;}
+.scell{width:26px;height:22px;background:var(--panel);border:1px solid var(--border);border-radius:2px;cursor:pointer;position:relative;flex-shrink:0;transition:background .1s;}
+.scell.b4{border-left-color:#3a3420;}
+.scell.ph{background:#2a2010;border-color:#6a5020;}
+.note-block{position:absolute;left:0;top:1px;height:calc(100% - 2px);background:linear-gradient(to right,#e8922a,#c87010);border-radius:3px;border:1px solid #f8b840;box-shadow:0 0 6px rgba(232,146,42,.5);pointer-events:none;z-index:2;overflow:hidden;}
+.dur-handle{position:absolute;right:0;top:0;bottom:0;width:6px;cursor:ew-resize;background:rgba(255,220,80,.4);border-radius:0 2px 2px 0;pointer-events:all;}
+
+/* VEL ROW */
+#vel-row{display:flex;gap:2px;height:40px;min-width:max-content;margin-left:54px;}
+.vbw{width:26px;cursor:ns-resize;display:flex;align-items:flex-end;flex-shrink:0;}
+.vbi{width:100%;background:var(--border);border-radius:2px 2px 0 0;transition:height .1s,background .1s;}
+.vbi.lit{background:var(--amber);}
+
+/* SLOT BUTTONS */
+.slot-btn{padding:3px 8px;font-size:9px;letter-spacing:.08em;background:var(--panel);border:1px solid var(--border);color:var(--dim);cursor:pointer;border-radius:3px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;transition:all .15s;}
+.slot-btn.active{border-color:var(--amber);color:var(--amber);}
+
+/* FX PANEL */
+#fx-panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px;}
+.fx-row{display:flex;flex-direction:column;gap:2px;}
+.fx-lbl{font-size:8px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;}
+.fx-val{font-size:9px;color:var(--amber);text-align:right;}
+input[type=range]{width:100%;height:4px;accent-color:var(--amber);cursor:pointer;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HEADER -->
+  <div id="hdr">
+    <span id="hdr-title">STEEL GUITAR FX</span>
+    <button class="hbtn on" id="t-lap" onclick="setTuning('lap6',this)">LAP 6</button>
+    <button class="hbtn" id="t-e9" onclick="setTuning('e9',this)">E9 PEDAL</button>
+    <span style="flex:1"></span>
+    <span id="pitch-big">+0.0</span>
+  </div>
+
+  <!-- WOOD ROW -->
+  <div class="wrow">
+    <span class="wrow-label">Wood:</span>
+    <button class="wbtn on" id="w-maple"    onclick="setWood('maple',this)">Maple</button>
+    <button class="wbtn"    id="w-mahogany" onclick="setWood('mahogany',this)">Mahogany</button>
+    <button class="wbtn"    id="w-koa"      onclick="setWood('koa',this)">Koa</button>
+    <button class="wbtn"    id="w-rosewood" onclick="setWood('rosewood',this)">Rosewood</button>
+    <button class="wbtn"    id="w-walnut"   onclick="setWood('walnut',this)">Walnut</button>
+    <button class="wbtn"    id="w-ash"      onclick="setWood('ash',this)">Ash</button>
+  </div>
+
+  <!-- BAR ROW -->
+  <div class="wrow">
+    <span class="wrow-label">Bar:</span>
+    <button class="bbtn on" id="b-steel"   onclick="setBar('steel',this)">Steel</button>
+    <button class="bbtn"    id="b-glass"   onclick="setBar('glass',this)">Glass</button>
+    <button class="bbtn"    id="b-brass"   onclick="setBar('brass',this)">Brass</button>
+    <button class="bbtn"    id="b-ceramic" onclick="setBar('ceramic',this)">Ceramic</button>
+  </div>
+
+  <!-- GUITAR CANVAS -->
+  <div id="guitar-wrap">
+    <canvas id="gc"></canvas>
+    <canvas id="gc2"></canvas>
+    <div id="interact-layer"></div>
+  </div>
+
+  <!-- MODE + PEDAL ROW -->
+  <div id="mode-row">
+    <button class="mbtn on" id="mb-play" onclick="setMode('play',this)">▶ Play</button>
+    <button class="mbtn"    id="mb-seq"  onclick="setMode('seq',this)">⊞ Seq</button>
+    <span class="ped-label">Pedal:</span>
+    <button class="pbtn" id="ped-A"
+      onmousedown="setPedal('A',true)" onmouseup="setPedal('A',false)" onmouseleave="setPedal('A',false)"
+      ontouchstart="setPedal('A',true);event.preventDefault()" ontouchend="setPedal('A',false)">A</button>
+    <button class="pbtn" id="ped-B"
+      onmousedown="setPedal('B',true)" onmouseup="setPedal('B',false)" onmouseleave="setPedal('B',false)"
+      ontouchstart="setPedal('B',true);event.preventDefault()" ontouchend="setPedal('B',false)">B</button>
+  </div>
+
+  <!-- FX PANEL -->
+  <div id="fx-panel">
+    <div class="fx-row"><span class="fx-lbl">Vibrato Depth</span><input type="range" id="fs-vd" min="0" max="100" value="0"><span class="fx-val" id="fv-vd">0%</span></div>
+    <div class="fx-row"><span class="fx-lbl">Vibrato Rate</span><input type="range" id="fs-vr" min="0" max="80" value="50"><span class="fx-val" id="fv-vr">5.0Hz</span></div>
+    <div class="fx-row"><span class="fx-lbl">Pitch Bend</span><input type="range" id="fs-pb" min="-100" max="100" value="0"><span class="fx-val" id="fv-pb">+0.0st</span></div>
+    <div class="fx-row"><span class="fx-lbl">Glide</span><input type="range" id="fs-gl" min="0" max="500" value="80"><span class="fx-val" id="fv-gl">80ms</span></div>
+    <div class="fx-row"><span class="fx-lbl">Tone</span><input type="range" id="fs-tn" min="0" max="100" value="50"><span class="fx-val" id="fv-tn">50%</span></div>
+    <div class="fx-row"><span class="fx-lbl">Reverb</span><input type="range" id="fs-rv" min="0" max="100" value="20"><span class="fx-val" id="fv-rv">20%</span></div>
+    <div class="fx-row"><span class="fx-lbl">Output</span><input type="range" id="fs-out" min="-24" max="6" value="0"><span class="fx-val" id="fv-out">+0.0dB</span></div>
+  </div>
+
+</div><!-- #app -->
+
+<!-- SEQUENCER OVERLAY -->
+<div id="seq-overlay">
+  <div id="seq-top">
+    <button id="play-btn" onclick="playing?stopSeq():startSeq()">
+      <svg id="play-ico" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+        <polygon points="5,3 19,12 5,21"/>
+      </svg>
+    </button>
+    <span id="bdisp" style="font-size:11px;color:var(--amber);min-width:36px;">—</span>
+    <div id="vu" style="flex:1;max-width:80px;"><div id="vu-fill"></div></div>
+    <input type="number" id="bpm-in" value="90" min="40" max="240">
+    <select id="step-sel" onchange="changeSteps()">
+      <option value="16" selected>16</option><option value="32">32</option>
+      <option value="24">24</option><option value="8">8</option>
+    </select>
+    <button class="ctl-btn on" id="loop-btn" onclick="toggleLoop()">Loop</button>
+    <button class="ctl-btn" id="shot-btn" onclick="toggleShot()">1Shot</button>
+    <button class="ctl-btn" onclick="clearAll()">Clear</button>
+    <button class="ctl-btn" onclick="exportMIDI()">MIDI</button>
+    <button class="mbtn on" onclick="setMode('play',document.getElementById('mb-play'))">✕ Close</button>
+  </div>
+  <!-- SLOT BUTTONS -->
+  <div style="display:flex;gap:4px;align-items:center;">
+    <span style="font-size:9px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;">Slot:</span>
+    <button class="slot-btn active" id="slot-A" onclick="loadSlot('A',this)">A</button>
+    <button class="slot-btn" id="slot-B" onclick="loadSlot('B',this)">B</button>
+    <button class="slot-btn" id="slot-C" onclick="loadSlot('C',this)">C</button>
+    <button class="slot-btn" id="slot-D" onclick="loadSlot('D',this)">D</button>
+    <button class="ctl-btn" onclick="saveSlot()">Save</button>
+  </div>
+  <!-- VEL ROW -->
+  <div id="vel-row-wrap" style="overflow-x:auto;"><div id="vel-row"></div></div>
+  <!-- GRID -->
+  <div id="seq-grid-wrap"><div id="seq-grid"></div></div>
+</div>
+
+<script>
+'use strict';
+// ════════════════════════════════════════════════
+// CONSTANTS & STATE
+// ════════════════════════════════════════════════
+const TUNINGS={
+  lap6:{label:'E · B · G · D · A · E',strings:[
+    {name:'1',note:'E5',freq:659.25,thick:1.2,col:'#e8dfa8'},
+    {name:'2',note:'B4',freq:493.88,thick:1.6,col:'#d8cf98'},
+    {name:'3',note:'G4',freq:392.00,thick:2.1,col:'#c8bf88'},
+    {name:'4',note:'D4',freq:293.66,thick:2.7,col:'#b8af78'},
+    {name:'5',note:'A3',freq:220.00,thick:3.4,col:'#a89f68'},
+    {name:'6',note:'E3',freq:164.81,thick:4.2,col:'#988f58'},
+  ]},
+  e9:{label:'F#·D#·G#·E·B·G#·E·D·B·F#',strings:[
+    {name:'1', note:'F#5',freq:739.99,thick:1.0,col:'#f0e8b0'},
+    {name:'2', note:'D#5',freq:622.25,thick:1.3,col:'#e4dca4'},
+    {name:'3', note:'G#4',freq:415.30,thick:1.6,col:'#d8d098'},
+    {name:'4', note:'E4', freq:329.63,thick:2.0,col:'#ccc48c'},
+    {name:'5', note:'B3', freq:246.94,thick:2.4,col:'#c0b880'},
+    {name:'6', note:'G#3',freq:207.65,thick:2.8,col:'#b4ac74'},
+    {name:'7', note:'E3', freq:164.81,thick:3.2,col:'#a8a068'},
+    {name:'8', note:'D3', freq:146.83,thick:3.6,col:'#9c9460'},
+    {name:'9', note:'B2', freq:123.47,thick:4.0,col:'#908858'},
+    {name:'10',note:'F#2',freq:92.50, thick:4.8,col:'#847c50'},
+  ]}
+};
+
+// E9 Pedal definitions
+// WHY: A pedal raises strings 3+4 by 200 cents, B pedal raises strings 4+5 by 100 cents
+const PEDAL_DEF={
+  A:{strings:[2,3],cents:200},
+  B:{strings:[4,5],cents:100}
+};
+
+const WOODS={
+  maple:{
+    base:(ctx,W,H)=>{const g=ctx.createRadialGradient(W*.5,H*.5,H*.05,W*.5,H*.5,H*.75);g.addColorStop(0,'#e8c060');g.addColorStop(.3,'#c89030');g.addColorStop(.6,'#8a4010');g.addColorStop(1,'#1a0800');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);},
+    gc:'rgba(160,90,10,',gf:.012,ga:4,gn:60,
+    btnBg:'linear-gradient(135deg,#c89030,#6a2808)',btnColor:'#fff8e0',btnBorder:'#e8b840',
+    highShelf:3,mid:0,bass:0,atkM:.8,susM:1.0,ffreq:2600
+  },
+  mahogany:{
+    base:(ctx,W,H)=>{const g=ctx.createLinearGradient(0,0,W,H);g.addColorStop(0,'#6a0808');g.addColorStop(.4,'#8a1010');g.addColorStop(.7,'#5a0606');g.addColorStop(1,'#3a0404');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);},
+    gc:'rgba(60,0,0,',gf:.008,ga:3,gn:50,
+    btnBg:'linear-gradient(135deg,#8a1010,#3a0404)',btnColor:'#ffcccc',btnBorder:'#cc2020',
+    highShelf:-1,mid:3,bass:1,atkM:1.2,susM:1.3,ffreq:2000
+  },
+  koa:{
+    base:(ctx,W,H)=>{const g=ctx.createLinearGradient(0,0,W,H);g.addColorStop(0,'#c87820');g.addColorStop(.4,'#a05c10');g.addColorStop(.7,'#d08828');g.addColorStop(1,'#704010');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);},
+    gc:'rgba(100,50,0,',gf:.018,ga:8,gn:70,
+    btnBg:'linear-gradient(135deg,#c87820,#704010)',btnColor:'#fff8e0',btnBorder:'#d09030',
+    highShelf:1,mid:2,bass:0,atkM:1.0,susM:1.1,ffreq:2300
+  },
+  rosewood:{
+    base:(ctx,W,H)=>{const g=ctx.createLinearGradient(0,0,W,H);g.addColorStop(0,'#2a1020');g.addColorStop(.4,'#3a1828');g.addColorStop(.7,'#220c18');g.addColorStop(1,'#180808');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);},
+    gc:'rgba(50,5,20,',gf:.006,ga:5,gn:80,
+    btnBg:'linear-gradient(135deg,#3a1828,#180808)',btnColor:'#e8c0d0',btnBorder:'#6a2040',
+    highShelf:2,mid:0,bass:2,atkM:1.0,susM:1.2,ffreq:2400
+  },
+  walnut:{
+    base:(ctx,W,H)=>{const g=ctx.createLinearGradient(0,0,W,H);g.addColorStop(0,'#3c2010');g.addColorStop(.4,'#2a1408');g.addColorStop(.7,'#4a2818');g.addColorStop(1,'#1c0c04');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);},
+    gc:'rgba(15,6,0,',gf:.010,ga:6,gn:65,
+    btnBg:'linear-gradient(135deg,#4a2818,#1c0c04)',btnColor:'#e0c8b0',btnBorder:'#6a3820',
+    highShelf:1,mid:1,bass:1,atkM:1.0,susM:1.1,ffreq:2200
+  },
+  ash:{
+    base:(ctx,W,H)=>{const g=ctx.createLinearGradient(0,0,W,H);g.addColorStop(0,'#585040');g.addColorStop(.4,'#403830');g.addColorStop(.7,'#504840');g.addColorStop(1,'#302820');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);},
+    gc:'rgba(15,10,5,',gf:.022,ga:10,gn:90,
+    btnBg:'linear-gradient(135deg,#585040,#302820)',btnColor:'#f0e8d8',btnBorder:'#808070',
+    highShelf:2,mid:1,bass:0,atkM:.9,susM:1.2,ffreq:2500
+  }
+};
+
+// Bar materials: visual draw function + audio params
+const BAR_MATS={
+  steel:{
+    draw:(ctx,bx,by,bw,bh)=>{
+      ctx.fillStyle='rgba(0,0,0,.4)'; roundRect(ctx,bx+3,by+3,bw,bh,7); ctx.fill();
+      const g=ctx.createLinearGradient(bx,0,bx+bw,0);
+      g.addColorStop(0,'#888070');g.addColorStop(.2,'#d8d0b8');g.addColorStop(.35,'#f0ece0');
+      g.addColorStop(.5,'#ffffff');g.addColorStop(.65,'#f0ece0');g.addColorStop(.8,'#c8c0a8');g.addColorStop(1,'#706860');
+      ctx.fillStyle=g; roundRect(ctx,bx,by,bw,bh,7); ctx.fill();
+      ctx.strokeStyle='rgba(100,90,70,.3)'; ctx.lineWidth=1;
+      for(let i=0;i<bh-16;i+=8){ctx.beginPath();ctx.moveTo(bx+3,by+8+i);ctx.lineTo(bx+bw-3,by+8+i);ctx.stroke();}
+      const hg=ctx.createLinearGradient(bx,0,bx+bw,0);
+      hg.addColorStop(0,'rgba(255,255,255,0)');hg.addColorStop(.3,'rgba(255,255,255,.5)');hg.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.fillStyle=hg; roundRect(ctx,bx,by,bw,bh,7); ctx.fill();
+    },
+    highShelf:2,mid:0,atkM:.85,susM:1.1
+  },
+  glass:{
+    draw:(ctx,bx,by,bw,bh)=>{
+      ctx.fillStyle='rgba(0,0,0,.3)'; roundRect(ctx,bx+3,by+3,bw,bh,10); ctx.fill();
+      const g=ctx.createLinearGradient(bx,0,bx+bw,0);
+      g.addColorStop(0,'rgba(40,80,40,.85)');g.addColorStop(.3,'rgba(80,140,70,.9)');
+      g.addColorStop(.5,'rgba(120,180,100,.95)');g.addColorStop(.7,'rgba(70,130,60,.9)');g.addColorStop(1,'rgba(30,70,30,.85)');
+      ctx.fillStyle=g; roundRect(ctx,bx,by,bw,bh,10); ctx.fill();
+      const hg=ctx.createLinearGradient(bx,0,bx+bw,0);
+      hg.addColorStop(0,'rgba(255,255,255,0)');hg.addColorStop(.25,'rgba(255,255,255,.5)');hg.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.fillStyle=hg; roundRect(ctx,bx,by,bw,bh,10); ctx.fill();
+    },
+    highShelf:-2,mid:-1,atkM:1.2,susM:1.4
+  },
+  brass:{
+    draw:(ctx,bx,by,bw,bh)=>{
+      ctx.fillStyle='rgba(0,0,0,.4)'; roundRect(ctx,bx+3,by+3,bw,bh,6); ctx.fill();
+      const g=ctx.createLinearGradient(bx,0,bx+bw,0);
+      g.addColorStop(0,'#6a4a10');g.addColorStop(.2,'#c89030');g.addColorStop(.4,'#e8b840');
+      g.addColorStop(.5,'#f8d060');g.addColorStop(.6,'#e0a828');g.addColorStop(.8,'#b08020');g.addColorStop(1,'#5a3a08');
+      ctx.fillStyle=g; roundRect(ctx,bx,by,bw,bh,6); ctx.fill();
+      const hg=ctx.createLinearGradient(bx,0,bx+bw,0);
+      hg.addColorStop(0,'rgba(255,255,255,0)');hg.addColorStop(.3,'rgba(255,240,180,.5)');hg.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.fillStyle=hg; roundRect(ctx,bx,by,bw,bh,6); ctx.fill();
+    },
+    highShelf:0,mid:3,atkM:.9,susM:1.0
+  },
+  ceramic:{
+    draw:(ctx,bx,by,bw,bh)=>{
+      ctx.fillStyle='rgba(0,0,0,.25)'; roundRect(ctx,bx+3,by+3,bw,bh,12); ctx.fill();
+      const g=ctx.createLinearGradient(bx,0,bx+bw,0);
+      g.addColorStop(0,'#c8c0b8');g.addColorStop(.3,'#e8e4e0');g.addColorStop(.5,'#f8f6f4');
+      g.addColorStop(.7,'#e0dcd8');g.addColorStop(1,'#b8b0a8');
+      ctx.fillStyle=g; roundRect(ctx,bx,by,bw,bh,12); ctx.fill();
+      const hg=ctx.createLinearGradient(bx,by,bx,by+bh);
+      hg.addColorStop(0,'rgba(255,255,255,.3)');hg.addColorStop(1,'rgba(0,0,0,.05)');
+      ctx.fillStyle=hg; roundRect(ctx,bx,by,bw,bh,12); ctx.fill();
+    },
+    highShelf:1,mid:0,atkM:.95,susM:1.0
+  }
+};
+
+// App state
+let tuning='lap6';
+let mode='play';
+let currentWood='maple';
+let currentBar='steel';
+let slidePct=0.35;
+let slideX=0;
+let slideDragging=false, slideStartX=0, slideStartPct=0;
+let stringYs=[];
+let hitParticles=[];
+let vibratingStrings={};
+let animLoopRunning=false;
+
+// Pedal state
+// WHY: pedalActive tracks button state, pedalCents tracks current glided value per string
+const pedalActive={A:false,B:false};
+const pedalCents={}; // si → current cents offset (glide-smoothed)
+let pedalRafId=null;
+let pedalLastTime=0;
+
+// FX state
+const FX={vd:0,vr:5,pb:0,gl:80,tn:.5,rv:.2,out:0};
+
+// Sequencer state
+let playing=false, currentStep=-1, stepTimer=null;
+let numSteps=16, loopOn=true, oneShot=false;
+let vibratoPhase=0, pitchCurrent=0;
+let seqDragging=false, seqDragVal=false;
+let velDragging=false, durDragging=false;
+let durSi=0, durT=0, durStartX=0, durStartDur=1;
+let selectedString=0;
+let currentSlot='A';
+const notesData={lap6:{},e9:{}};
+
+// Audio state
+let ctx_a=null, reverbConv=null, reverbGain=null, dryGain=null;
+
+// MIDI
+const MIDI_BEND_RANGE=12;
+let midiOutput=null;
+
+// Canvas
+const gc=document.getElementById('gc');
+const gctx=gc.getContext('2d');
+const gc2=document.getElementById('gc2');
+const hctx=gc2.getContext('2d');
+const gWrap=document.getElementById('guitar-wrap');
+const interactLayer=document.getElementById('interact-layer');
+
+// ════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════
+function getWood(){return WOODS[currentWood]||WOODS.maple;}
+function getBar(){return BAR_MATS[currentBar]||BAR_MATS.steel;}
+function N(){return notesData[tuning];}
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
+
+function getSlideX(){
+  return 60+slidePct*(gc.width-90);
+}
+
+function getGuitarCoords(clientX,clientY){
+  const r=gWrap.getBoundingClientRect();
+  return {
+    mx:(clientX-r.left)*(gc.width/r.width),
+    my:(clientY-r.top)*(gc.height/r.height)
+  };
+}
+
+function initNotes(t){
+  const strs=TUNINGS[t].strings;
+  if(!notesData[t]) notesData[t]={};
+  strs.forEach((_,si)=>{
+    if(!notesData[t][si]) notesData[t][si]={};
+    for(let step=0;step<numSteps;step++){
+      if(!notesData[t][si][step]) notesData[t][si][step]={on:false,vel:100,dur:1};
+    }
+  });
+}
+
+// ════════════════════════════════════════════════
+// DRAW - schedDraw batches all redraws into one RAF frame
+// WHY: Prevents multiple competing drawGuitar calls in the same frame
+// ════════════════════════════════════════════════
+let _rafPending=false;
+function schedDraw(){
+  if(_rafPending) return;
+  _rafPending=true;
+  requestAnimationFrame(()=>{_rafPending=false; drawGuitar();});
+}
+
+function drawGuitar(){
+  const W=gc.width, H=gc.height;
+  if(!W||!H) return;
+  gctx.clearRect(0,0,W,H);
+
+  // Body shape
+  roundRect(gctx,0,0,W,H,12);
+  gctx.save(); gctx.clip();
+
+  // Wood grain
+  drawWoodGrain(gctx,W,H);
+
+  // Strings
+  const strs=TUNINGS[tuning].strings;
+  const strStart=60, strEnd=W-30;
+  const strCount=strs.length;
+  const strAreaTop=H*.18, strAreaBot=H*.82;
+  stringYs=strs.map((_,i)=>strAreaTop+(strAreaBot-strAreaTop)*(i/(strCount-1||1)));
+
+  // Nut & bridge
+  gctx.strokeStyle='rgba(200,180,120,.6)'; gctx.lineWidth=3;
+  gctx.beginPath(); gctx.moveTo(strStart,strAreaTop-8); gctx.lineTo(strStart,strAreaBot+8); gctx.stroke();
+  gctx.beginPath(); gctx.moveTo(strEnd,strAreaTop-8); gctx.lineTo(strEnd,strAreaBot+8); gctx.stroke();
+
+  // Pegs
+  strs.forEach((_,i)=>{drawPeg(gctx,strStart-20,stringYs[i]); drawPeg(gctx,strEnd+15,stringYs[i]);});
+
+  // Strings
+  strs.forEach((str,i)=>{drawString(gctx,strStart,stringYs[i],strEnd,stringYs[i],str,i);});
+
+  // Slide bar
+  drawSlideBar(gctx,W,H);
+
+  gctx.restore();
+
+  // Vibration overlay (on top of clip)
+  drawVibrations(W);
+}
+
+function drawWoodGrain(ctx,W,H){
+  const wd=getWood();
+  wd.base(ctx,W,H);
+  ctx.save();
+  for(let i=0;i<wd.gn;i++){
+    const y=Math.random()*H;
+    const alpha=Math.random()*.08+.01;
+    ctx.strokeStyle=`${wd.gc}${alpha})`;
+    ctx.lineWidth=Math.random()*1.5+.3;
+    ctx.beginPath(); ctx.moveTo(0,y);
+    for(let x=0;x<W;x+=40){
+      ctx.lineTo(x,y+Math.sin(x*wd.gf+i*.3)*wd.ga*(Math.random()*.5+.75));
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+  // Gloss
+  const gloss=ctx.createLinearGradient(0,0,0,H*.4);
+  gloss.addColorStop(0,'rgba(255,200,100,.06)');gloss.addColorStop(.5,'rgba(255,200,100,.02)');gloss.addColorStop(1,'rgba(255,200,100,0)');
+  ctx.fillStyle=gloss; ctx.fillRect(0,0,W,H*.4);
+  // Vignette
+  const vig=ctx.createRadialGradient(W/2,H/2,H*.25,W/2,H/2,H*.8);
+  vig.addColorStop(0,'rgba(0,0,0,0)'); vig.addColorStop(1,'rgba(0,0,0,.45)');
+  ctx.fillStyle=vig; ctx.fillRect(0,0,W,H);
+}
+
+function drawString(ctx,x1,y,x2,_y2,str){
+  ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.lineWidth=str.thick+1.5;
+  ctx.beginPath(); ctx.moveTo(x1,y+1); ctx.lineTo(x2,y+1); ctx.stroke();
+  const sg=ctx.createLinearGradient(0,y-str.thick,0,y+str.thick);
+  sg.addColorStop(0,'rgba(255,255,240,.6)');sg.addColorStop(.3,str.col);sg.addColorStop(.7,str.col);sg.addColorStop(1,'rgba(30,20,5,.7)');
+  ctx.strokeStyle=sg; ctx.lineWidth=str.thick;
+  ctx.beginPath(); ctx.moveTo(x1,y); ctx.lineTo(x2,y); ctx.stroke();
+  ctx.strokeStyle='rgba(255,250,230,.25)'; ctx.lineWidth=str.thick*.3;
+  ctx.beginPath(); ctx.moveTo(x1,y-str.thick*.2); ctx.lineTo(x2,y-str.thick*.2); ctx.stroke();
+}
+
+function drawPeg(ctx,x,y){
+  const g=ctx.createRadialGradient(x-2,y-2,1,x,y,7);
+  g.addColorStop(0,'#d0c060');g.addColorStop(.6,'#887020');g.addColorStop(1,'#3a2c08');
+  ctx.beginPath(); ctx.arc(x,y,7,0,Math.PI*2);
+  ctx.fillStyle=g; ctx.fill();
+  ctx.strokeStyle='rgba(200,160,40,.4)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.beginPath(); ctx.arc(x,y,2,0,Math.PI*2);
+  ctx.fillStyle='#c8a830'; ctx.fill();
+}
+
+function drawSlideBar(ctx,W,H){
+  const strStart=60, strLen=W-90;
+  slideX=strStart+slidePct*strLen;
+  const barW=18, barH=H-20;
+  const bx=slideX-barW/2, by=10;
+  getBar().draw(ctx,bx,by,barW,barH);
+  // Pitch label
+  const semitones=(slidePct-.35)*28;
+  ctx.font='bold 10px IBM Plex Mono,monospace';
+  ctx.fillStyle='rgba(232,196,90,.9)';
+  ctx.textAlign='center';
+  ctx.shadowColor='rgba(0,0,0,.8)'; ctx.shadowBlur=4;
+  ctx.fillText((semitones>=0?'+':'')+semitones.toFixed(1)+'st',slideX,by-4);
+  ctx.shadowBlur=0;
+}
+
+function drawVibrations(W){
+  // WHY: Vibrations drawn separately so they overlay the clipped guitar body
+  const strs=TUNINGS[tuning].strings;
+  const strStart=60, strEnd=W-30;
+  gctx.save();
+  roundRect(gctx,0,0,W,gc.height,12); gctx.clip();
+  Object.entries(vibratingStrings).forEach(([si,info])=>{
+    const y=stringYs[+si];
+    if(y===undefined) return;
+    const str=strs[+si];
+    if(!str) return;
+    const amp=info.amp*(info.t/info.maxT);
+    gctx.strokeStyle=str.col;
+    gctx.lineWidth=str.thick*.7;
+    gctx.globalAlpha=.6;
+    gctx.beginPath(); gctx.moveTo(strStart,y);
+    for(let x=strStart;x<strEnd;x+=2){
+      gctx.lineTo(x,y+Math.sin((x-strStart)*.08+info.phase)*amp);
+    }
+    gctx.stroke();
+    gctx.globalAlpha=1;
+    info.t-=1; info.phase+=.18;
+    if(info.t<=0) delete vibratingStrings[si];
+  });
+  gctx.restore();
+}
+
+// ════════════════════════════════════════════════
+// ANIMATION LOOP
+// WHY unified: one RAF loop handles both vibration state updates AND particles.
+// Previously separate loops caused concurrent RAF callbacks fighting over the GPU.
+// Now there is exactly ONE animation RAF loop + ONE schedDraw per frame max.
+// ════════════════════════════════════════════════
+function animLoop(){
+  const hasVib=Object.keys(vibratingStrings).length>0;
+  const hasPart=hitParticles.length>0;
+  if(!hasVib&&!hasPart){
+    animLoopRunning=false;
+    hctx.clearRect(0,0,gc2.width,gc2.height);
+    return;
+  }
+
+  // Drive guitar redraw if strings are vibrating
+  if(hasVib) schedDraw();
+
+  // Particles
+  hctx.clearRect(0,0,gc2.width,gc2.height);
+  if(hasPart){
+    hitParticles=hitParticles.filter(p=>{
+      p.x+=p.vx; p.y+=p.vy; p.vy+=.08; p.life-=.06;
+      if(p.life<=0) return false;
+      hctx.globalAlpha=p.life;
+      hctx.fillStyle=p.col;
+      hctx.beginPath(); hctx.arc(p.x,p.y,2,0,Math.PI*2); hctx.fill();
+      return true;
+    });
+    hctx.globalAlpha=1;
+  }
+
+  requestAnimationFrame(animLoop);
+}
+
+function startAnimLoop(){
+  if(animLoopRunning) return;
+  animLoopRunning=true;
+  requestAnimationFrame(animLoop);
+}
+
+function spawnHit(x,y,col){
+  for(let i=0;i<10;i++){
+    const angle=Math.random()*Math.PI*2, speed=Math.random()*3+1;
+    hitParticles.push({x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,life:1,col});
+  }
+  startAnimLoop();
+}
+
+// ════════════════════════════════════════════════
+// RESIZE
+// ════════════════════════════════════════════════
+function resizeCanvases(){
+  const r=gWrap.getBoundingClientRect();
+  const W=Math.round(r.width), H=Math.round(r.height);
+  gc.width=W; gc.height=H;
+  gc2.width=W; gc2.height=H;
+  drawGuitar();
+}
+
+function setGuitarHeight(){
+  // WHY: Guitar gets a fixed % of viewport height to leave room for controls
+  const vh=window.innerHeight;
+  const ctrlH=280; // approximate height of controls above/below
+  const h=Math.max(100,Math.min(220,vh-ctrlH));
+  gWrap.style.height=h+'px';
+}
+
+// ════════════════════════════════════════════════
+// TOUCH & MOUSE INTERACTION
+// WHY activeTouches: tracks each finger by touch.identifier.
+// Bar finger = 'bar', string fingers = 'string'.
+// This is the same stable pattern as ver14, kept exactly as-is.
+// ════════════════════════════════════════════════
+const activeTouches={};
+
+// Mouse
+gWrap.addEventListener('mousedown',e=>{
+  if(mode==='seq') return;
+  const {mx,my}=getGuitarCoords(e.clientX,e.clientY);
+  if(Math.abs(mx-getSlideX())<20&&my>4&&my<gc.height-4){
+    slideDragging=true; slideStartX=e.clientX; slideStartPct=slidePct;
+    gWrap.style.cursor='ew-resize'; return;
+  }
+  if(mode==='play'){
+    const strs=TUNINGS[tuning].strings;
+    for(let si=0;si<strs.length;si++){
+      if(Math.abs(my-stringYs[si])<18){pluckString(si,mx);break;}
+    }
+  }
+});
+
+document.addEventListener('mousemove',e=>{
+  if(durDragging){
+    const dx=e.clientX-durStartX;
+    const newDur=Math.max(1,Math.min(numSteps-durT,durStartDur+Math.round(dx/(26+2))));
+    if(newDur!==N()[durSi][durT].dur){N()[durSi][durT].dur=newDur;renderNoteBlock(durSi,durT);}
+    return;
+  }
+  if(!slideDragging) return;
+  const r=gWrap.getBoundingClientRect();
+  const dx=(e.clientX-slideStartX)*(gc.width/r.width);
+  slidePct=Math.max(0,Math.min(1,slideStartPct+dx/(gc.width-90)));
+  updateSlideFX(); schedDraw();
+});
+
+document.addEventListener('mouseup',()=>{
+  if(slideDragging){slideDragging=false;gWrap.style.cursor='';}
+  seqDragging=false; velDragging=false; durDragging=false;
+});
+
+// Touch
+gWrap.addEventListener('touchstart',e=>{
+  if(mode==='seq') return;
+  e.preventDefault();
+  for(let i=0;i<e.changedTouches.length;i++){
+    const t=e.changedTouches[i];
+    const {mx,my}=getGuitarCoords(t.clientX,t.clientY);
+    if(Math.abs(mx-getSlideX())<28&&my>4&&my<gc.height-4){
+      // Bar finger
+      activeTouches[t.identifier]='bar';
+      slideDragging=true; slideStartX=t.clientX; slideStartPct=slidePct;
+    } else if(mode==='play'){
+      // WHY check: if this ID is already 'bar', don't overwrite it
+      if(activeTouches[t.identifier]==='bar') continue;
+      activeTouches[t.identifier]='string';
+      TUNINGS[tuning].strings.forEach((_,si)=>{
+        if(Math.abs(my-stringYs[si])<22) pluckString(si,mx);
+      });
+    }
+  }
+},{passive:false});
+
+gWrap.addEventListener('touchmove',e=>{
+  if(mode==='seq') return;
+  e.preventDefault();
+  for(let i=0;i<e.changedTouches.length;i++){
+    const t=e.changedTouches[i];
+    if(activeTouches[t.identifier]==='bar'&&slideDragging){
+      const r=gWrap.getBoundingClientRect();
+      const dx=(t.clientX-slideStartX)*(gc.width/r.width);
+      slidePct=Math.max(0,Math.min(1,slideStartPct+dx/(gc.width-90)));
+      updateSlideFX(); schedDraw();
+    }
+  }
+},{passive:false});
+
+gWrap.addEventListener('touchend',e=>{
+  for(let i=0;i<e.changedTouches.length;i++){
+    const id=e.changedTouches[i].identifier;
+    if(activeTouches[id]==='bar') slideDragging=false;
+    delete activeTouches[id];
+  }
+});
+
+document.addEventListener('touchend',()=>{slideDragging=false; durDragging=false;});
+
+document.addEventListener('touchmove',e=>{
+  if(durDragging){
+    const dx=e.touches[0].clientX-durStartX;
+    const newDur=Math.max(1,Math.min(numSteps-durT,durStartDur+Math.round(dx/(26+2))));
+    if(newDur!==N()[durSi][durT].dur){N()[durSi][durT].dur=newDur;renderNoteBlock(durSi,durT);}
+    e.preventDefault();
+  }
+},{passive:false});
+
+document.addEventListener('gesturestart',e=>e.preventDefault(),{passive:false});
+document.addEventListener('gesturechange',e=>e.preventDefault(),{passive:false});
+
+// ════════════════════════════════════════════════
+// SLIDE + PLUCK
+// ════════════════════════════════════════════════
+function updateSlideFX(){
+  const s=(slidePct-.35)*28;
+  FX.pb=s;
+  document.getElementById('pitch-big').textContent=(s>=0?'+':'')+s.toFixed(1);
+  document.getElementById('fv-pb').textContent=(s>=0?'+':'')+s.toFixed(1)+'st';
+}
+
+function pluckString(si,hitX){
+  // WHY: pitch determined by slide bar position AT moment of plucking
+  if(!ctx_a){ctx_a=new(window.AudioContext||window.webkitAudioContext)();buildReverb();}
+  const str=TUNINGS[tuning].strings[si];
+  const semitones=(slidePct-.35)*28;
+  const cents=semitones*100+(pedalCents[si]||0);
+
+  // Velocity: distance from bar = brighter/louder (bridge pick vs neck pick)
+  const strStart=60, strEnd=gc.width-30;
+  const barX=strStart+slidePct*(strEnd-strStart);
+  const pluckX=hitX||barX;
+  const distFromBar=Math.abs(pluckX-barX)/(strEnd-strStart);
+  const velN=0.7+distFromBar*0.5;
+
+  const bar=getBar();
+  const toneGain=(FX.tn-.5)*18+(bar.highShelf||0)*2;
+  playNote(str.freq,Math.min(1.2,velN)*bar.atkM,cents,toneGain,1.4*bar.susM);
+
+  spawnHit(pluckX,stringYs[si]||0,str.col);
+  const had=!!vibratingStrings[si];
+  vibratingStrings[si]={amp:8-si*0.5,t:40,maxT:40,phase:0};
+  if(!had) startAnimLoop();
+}
+
+// ════════════════════════════════════════════════
+// PEDAL
+// WHY: Pedal A raises strings 2,3 by 200¢; Pedal B raises strings 4,5 by 100¢
+// Glide smoothing applied per-string using exponential approach
+// ════════════════════════════════════════════════
+function setPedal(key,state){
+  pedalActive[key]=state;
+  document.getElementById('ped-'+key).classList.toggle('ped-on',state);
+  if(!pedalRafId) pedalRafId=requestAnimationFrame(pedalLoop);
+}
+
+function pedalLoop(ts){
+  const anyOn=Object.values(pedalActive).some(Boolean);
+  const anyGliding=Object.values(pedalCents).some(v=>Math.abs(v)>0.5);
+
+  if(!anyOn&&!anyGliding){
+    // Snap remaining to 0
+    Object.keys(pedalCents).forEach(k=>{pedalCents[k]=0;});
+    pedalRafId=null;
+    pedalLastTime=0;
+    return;
+  }
+
+  const dt=pedalLastTime?Math.min(ts-pedalLastTime,100):16;
+  pedalLastTime=ts;
+
+  Object.keys(PEDAL_DEF).forEach(key=>{
+    const pd=PEDAL_DEF[key];
+    const target=pedalActive[key]?pd.cents:0;
+    const alpha=1-Math.exp(-dt/(FX.gl+1));
+    pd.strings.forEach(si=>{
+      const cur=pedalCents[si]||0;
+      pedalCents[si]=cur+(target-cur)*alpha;
+    });
+  });
+
+  pedalRafId=requestAnimationFrame(pedalLoop);
+}
+
+// ════════════════════════════════════════════════
+// AUDIO - Karplus-Strong voice pool
+// WHY voice pool: pre-allocated AudioNodes avoid per-note node creation
+// which causes GC pauses and main thread jank
+// ════════════════════════════════════════════════
+const POOL_SIZE=8;
+let voicePool=null, voiceIdx=0;
+
+async function buildReverb(){
+  const sr=ctx_a.sampleRate, len=sr*2.8;
+  const buf=ctx_a.createBuffer(2,len,sr);
+  for(let c=0;c<2;c++){
+    const ch=buf.getChannelData(c);
+    for(let i=0;i<len;i++) ch[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.2);
+  }
+  reverbConv=ctx_a.createConvolver(); reverbConv.buffer=buf;
+  reverbGain=ctx_a.createGain(); reverbGain.gain.value=FX.rv;
+  dryGain=ctx_a.createGain(); dryGain.gain.value=1-FX.rv*.5;
+  reverbConv.connect(reverbGain); reverbGain.connect(ctx_a.destination);
+  dryGain.connect(ctx_a.destination);
+  buildVoicePool();
+}
+
+function buildVoicePool(){
+  voicePool=[];
+  const dest=dryGain||ctx_a.destination;
+  for(let i=0;i<POOL_SIZE;i++){
+    const ksF=ctx_a.createBiquadFilter(); ksF.type='lowpass'; ksF.Q.value=0.5;
+    const toneF=ctx_a.createBiquadFilter(); toneF.type='lowpass'; toneF.Q.value=0.8;
+    const midF=ctx_a.createBiquadFilter(); midF.type='peaking'; midF.frequency.value=800; midF.Q.value=1.0;
+    const hiF=ctx_a.createBiquadFilter(); hiF.type='highshelf'; hiF.frequency.value=3000;
+    const env=ctx_a.createGain(); env.gain.value=0;
+    ksF.connect(toneF); toneF.connect(midF); midF.connect(hiF); hiF.connect(env);
+    env.connect(dest);
+    if(reverbConv) env.connect(reverbConv);
+    voicePool.push({ksF,toneF,midF,hiF,env,src:null});
+  }
+}
+
+function playNote(freq,velN,centsOff,fgain,dur){
+  if(!ctx_a||!voicePool) return;
+  const vol=Math.pow(10,FX.out/20)*.5*velN;
+  const now=ctx_a.currentTime;
+  const f=freq*Math.pow(2,centsOff/1200);
+
+  const v=voicePool[voiceIdx%POOL_SIZE]; voiceIdx++;
+  if(v.src){try{v.src.stop();}catch(e){} v.src=null;}
+
+  // Karplus-Strong noise buffer (only allocation per note)
+  const bufSize=Math.max(2,Math.round(ctx_a.sampleRate/f));
+  const ksBuf=ctx_a.createBuffer(1,bufSize,ctx_a.sampleRate);
+  const d=ksBuf.getChannelData(0);
+  for(let i=0;i<bufSize;i++) d[i]=Math.random()*2-1;
+
+  const wd=getWood();
+  const bar=getBar();
+  v.ksF.frequency.setValueAtTime(f*6,now);
+  v.toneF.frequency.setValueAtTime(wd.ffreq+fgain*60,now);
+  v.midF.gain.setValueAtTime((wd.mid||0)+(bar.mid||0),now);
+  v.hiF.gain.setValueAtTime((wd.highShelf||0)+(bar.highShelf||0),now);
+
+  const atk=0.001*wd.atkM;
+  v.env.gain.cancelScheduledValues(now);
+  v.env.gain.setValueAtTime(0,now);
+  v.env.gain.linearRampToValueAtTime(vol,now+atk);
+  v.env.gain.setTargetAtTime(vol*.7,now+atk,.08*wd.susM);
+  v.env.gain.setTargetAtTime(0,now+dur*.5,dur*.35*wd.susM);
+
+  const ks=ctx_a.createBufferSource();
+  ks.buffer=ksBuf; ks.loop=true;
+  ks.connect(v.ksF);
+  v.src=ks;
+  ks.start(now); ks.stop(now+dur+.8);
+}
+
+// ════════════════════════════════════════════════
+// MIDI OUTPUT
+// ════════════════════════════════════════════════
+function initMIDI(){
+  if(!navigator.requestMIDIAccess) return;
+  navigator.requestMIDIAccess({sysex:false}).then(access=>{
+    function connect(){
+      access.inputs.forEach(i=>{i.onmidimessage=onMIDIMessage;});
+      access.outputs.forEach(o=>{if(!midiOutput) midiOutput=o;});
+    }
+    connect(); access.onstatechange=connect;
+  }).catch(()=>{});
+}
+
+function onMIDIMessage(msg){
+  const [status,note,vel]=msg.data;
+  const type=status&0xf0;
+  const on=(type===0x90&&vel>0), off=(type===0x80||(type===0x90&&vel===0));
+  if(note===36){pedalActive.A=(on?true:off?false:pedalActive.A);document.getElementById('ped-A').classList.toggle('ped-on',pedalActive.A);if(!pedalRafId)pedalRafId=requestAnimationFrame(pedalLoop);}
+  if(note===38){pedalActive.B=(on?true:off?false:pedalActive.B);document.getElementById('ped-B').classList.toggle('ped-on',pedalActive.B);if(!pedalRafId)pedalRafId=requestAnimationFrame(pedalLoop);}
+}
+
+function sendPitchBend(ch,cents){
+  if(!midiOutput) return;
+  const val=Math.round((cents/100/MIDI_BEND_RANGE)*8191+8192);
+  midiOutput.send([0xE0|(ch&0xf),(val&0x7f),(val>>7)&0x7f]);
+}
+function sendCC(ch,cc,val){
+  if(!midiOutput) return;
+  midiOutput.send([0xB0|(ch&0xf),cc&0x7f,Math.max(0,Math.min(127,val))]);
+}
+
+initMIDI();
+
+// ════════════════════════════════════════════════
+// SEQUENCER
+// ════════════════════════════════════════════════
+const CELL_W=26;
+
+// Cell cache: built once per grid rebuild, avoids querySelectorAll on every step
+let _cellCache={}, _lastPHStep=-1;
+
+function buildCellCache(){
+  _cellCache={};
+  document.querySelectorAll('.scell').forEach(el=>{
+    const t=+el.dataset.t;
+    if(!_cellCache[t]) _cellCache[t]=[];
+    _cellCache[t].push(el);
+  });
+  _lastPHStep=-1;
+}
+
+function updatePH(step){
+  if(_lastPHStep>=0&&_cellCache[_lastPHStep])
+    _cellCache[_lastPHStep].forEach(el=>el.classList.remove('ph'));
+  if(_cellCache[step])
+    _cellCache[step].forEach(el=>el.classList.add('ph'));
+  _lastPHStep=step;
+}
+
+function buildSeqGrid(){
+  initNotes(tuning);
+  const g=document.getElementById('seq-grid'); g.innerHTML='';
+  TUNINGS[tuning].strings.forEach((str,si)=>{
+    const row=document.createElement('div'); row.className='srow';
+    const lbl=document.createElement('div'); lbl.className='slbl';
+    lbl.textContent=`#${str.name} ${str.note}`; row.appendChild(lbl);
+    const cells=document.createElement('div');
+    cells.style.cssText='position:relative;display:flex;gap:2px;';
+    for(let t=0;t<numSteps;t++){
+      const c=document.createElement('div');
+      c.className='scell'+(t%4===0?' b4':'');
+      c.dataset.si=si; c.dataset.t=t;
+      c.addEventListener('mousedown',seqDown);
+      c.addEventListener('touchstart',seqTouchStart,{passive:false});
+      c.addEventListener('mouseenter',seqEnter);
+      cells.appendChild(c);
+    }
+    row.appendChild(cells);
+    g.appendChild(row);
+  });
+  renderAllNoteBlocks();
+  buildVelRow();
+  buildCellCache();
+}
+
+function renderAllNoteBlocks(){
+  TUNINGS[tuning].strings.forEach((_,si)=>{for(let t=0;t<numSteps;t++) renderNoteBlock(si,t);});
+}
+
+function renderNoteBlock(si,t){
+  const n=N()[si][t];
+  const cellEl=document.querySelector(`.scell[data-si="${si}"][data-t="${t}"]`);
+  if(!cellEl) return;
+  cellEl.classList.remove('on');
+  const old=cellEl.querySelector('.note-block'); if(old) old.remove();
+  if(!n.on) return;
+  const dur=Math.max(1,n.dur||1);
+  const blockW=dur*CELL_W+(dur-1)*2;
+  const block=document.createElement('div');
+  block.className='note-block';
+  block.style.cssText=`left:0;top:1px;height:calc(100% - 2px);width:${blockW}px;`;
+  const handle=document.createElement('div');
+  handle.className='dur-handle';
+  handle.addEventListener('mousedown',e=>{
+    e.preventDefault(); e.stopPropagation();
+    durDragging=true; durSi=si; durT=t; durStartX=e.clientX; durStartDur=n.dur||1;
+  });
+  block.appendChild(handle);
+  cellEl.style.position='relative';
+  cellEl.appendChild(block);
+}
+
+function seqDown(e){
+  if(e.target.classList.contains('dur-handle')) return;
+  e.preventDefault(); seqDragging=true;
+  const si=+this.dataset.si, t=+this.dataset.t;
+  seqDragVal=!N()[si][t].on;
+  toggleNote(si,t,seqDragVal);
+  selectedString=si; buildVelRow();
+}
+
+function seqTouchStart(e){
+  e.preventDefault();
+  const cell=this;
+  const si=+cell.dataset.si, t=+cell.dataset.t;
+  const touchX=e.touches[0].clientX, touchY=e.touches[0].clientY;
+  let isDurMode=false, moved=false, longPressTimer=null, currentTouchX=touchX;
+
+  longPressTimer=setTimeout(()=>{
+    if(!N()[si][t].on) return;
+    isDurMode=true; durDragging=true; durSi=si; durT=t;
+    durStartX=currentTouchX; durStartDur=N()[si][t].dur||1;
+    moved=false;
+    if(navigator.vibrate) navigator.vibrate(40);
+    cell.style.outline='2px solid #fff';
+    setTimeout(()=>cell.style.outline='',300);
+  },500);
+
+  const onMove=ev=>{
+    currentTouchX=ev.touches[0].clientX;
+    const dx=Math.abs(ev.touches[0].clientX-touchX);
+    const dy=Math.abs(ev.touches[0].clientY-touchY);
+    if(dx>8||dy>8) moved=true;
+    if(dy>12&&!isDurMode){clearTimeout(longPressTimer); longPressTimer=null;}
+    if(isDurMode&&durDragging){
+      const dragDx=ev.touches[0].clientX-durStartX;
+      const newDur=Math.max(1,Math.min(numSteps-t,durStartDur+Math.round(dragDx/(CELL_W+2))));
+      if(newDur!==N()[si][t].dur){N()[si][t].dur=newDur; renderNoteBlock(si,t);}
+      ev.preventDefault(); return;
+    }
+    if(!isDurMode&&moved&&seqDragging){
+      const el=document.elementFromPoint(ev.touches[0].clientX,ev.touches[0].clientY);
+      if(el&&el.classList.contains('scell')&&el!==cell) toggleNote(+el.dataset.si,+el.dataset.t,seqDragVal);
+    }
+  };
+
+  const touchStartTime=Date.now();
+  const onEnd=()=>{
+    clearTimeout(longPressTimer);
+    const elapsed=Date.now()-touchStartTime;
+    if(!isDurMode&&!moved&&elapsed<450){
+      seqDragging=true; seqDragVal=!N()[si][t].on;
+      toggleNote(si,t,seqDragVal); selectedString=si; buildVelRow();
+    }
+    isDurMode=false; durDragging=false; seqDragging=false;
+    document.removeEventListener('touchmove',onMove);
+    document.removeEventListener('touchend',onEnd);
+  };
+
+  document.addEventListener('touchmove',onMove,{passive:false});
+  document.addEventListener('touchend',onEnd);
+}
+
+function seqEnter(){
+  if(!seqDragging||durDragging) return;
+  toggleNote(+this.dataset.si,+this.dataset.t,seqDragVal);
+}
+
+function toggleNote(si,t,val){
+  N()[si][t].on=val;
+  if(!val) N()[si][t].dur=1;
+  renderNoteBlock(si,t);
+  updateVB(si,t);
+}
+
+function buildVelRow(){
+  const vr=document.getElementById('vel-row'); vr.innerHTML='';
+  for(let t=0;t<numSteps;t++){
+    const w=document.createElement('div'); w.className='vbw'; w.dataset.t=t;
+    const b=document.createElement('div');
+    b.className='vbi'+(N()[selectedString][t].on?' lit':'');
+    b.id=`vb-${t}`; b.style.height=(N()[selectedString][t].vel/127*100)+'%';
+    w.appendChild(b);
+    w.addEventListener('mousedown',vDown); w.addEventListener('mousemove',vMove);
+    vr.appendChild(w);
+  }
+}
+
+function vDown(e){velDragging=true;setV(e,this);}
+function vMove(e){if(!velDragging)return;setV(e,this);}
+function setV(e,w){
+  const t=+w.dataset.t, r=w.getBoundingClientRect();
+  const p=1-Math.max(0,Math.min(1,(e.clientY-r.top)/r.height));
+  N()[selectedString][t].vel=Math.round(p*127);
+  if(p>.02){N()[selectedString][t].on=true; toggleNote(selectedString,t,true);}
+  updateVB(selectedString,t);
+}
+function updateVB(si,t){
+  if(si!==selectedString) return;
+  const b=document.getElementById(`vb-${t}`); if(!b) return;
+  b.style.height=(N()[si][t].vel/127*100)+'%';
+  b.className='vbi'+(N()[si][t].on?' lit':'');
+}
+
+// ════════════════════════════════════════════════
+// SEQUENCER PLAYBACK
+// ════════════════════════════════════════════════
+function getBPM(){return Math.max(40,Math.min(240,parseFloat(document.getElementById('bpm-in').value)||90));}
+
+function startSeq(){
+  if(!ctx_a){ctx_a=new(window.AudioContext||window.webkitAudioContext)();buildReverb();}
+  playing=true; currentStep=0; vibratoPhase=0; pitchCurrent=0;
+  scheduleStep(); animVU();
+  document.getElementById('play-ico').innerHTML='<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+}
+
+function stopSeq(){
+  playing=false; currentStep=-1;
+  if(stepTimer) clearTimeout(stepTimer);
+  updatePH(-1); _lastPHStep=-1;
+  document.getElementById('bdisp').textContent='—';
+  document.getElementById('vu-fill').style.width='0%';
+  document.getElementById('play-ico').innerHTML='<polygon points="5,3 19,12 5,21"/>';
+  schedDraw();
+}
+
+// Cached DOM refs for hot path
+let _bdispEl=null, _pitchEl=null;
+
+function scheduleStep(){
+  if(!playing) return;
+  if(!_bdispEl){_bdispEl=document.getElementById('bdisp'); _pitchEl=document.getElementById('pitch-big');}
+  const bpm=getBPM(), ss=60/bpm/4;
+  const strs=TUNINGS[tuning].strings;
+
+  updatePH(currentStep);
+  _bdispEl.textContent=`${Math.floor(currentStep/4)+1}.${(currentStep%4)+1}`;
+
+  vibratoPhase+=FX.vr*ss;
+  const vib=FX.vd*60*Math.sin(vibratoPhase*2*Math.PI);
+  pitchCurrent+=(FX.pb-pitchCurrent)*(1-Math.exp(-ss/(FX.gl*.001+.001)));
+  const tc=pitchCurrent*100+vib;
+  _pitchEl.textContent=(tc/100>=0?'+':'')+(tc/100).toFixed(1);
+
+  const fg=(FX.tn-.5)*18;
+  strs.forEach((str,si)=>{
+    const nn=N()[si][currentStep];
+    if(nn&&nn.on){
+      const dur=Math.max(1,nn.dur||1);
+      const pOffset=pedalCents[si]||0;
+      playNote(str.freq,nn.vel/127,tc+pOffset,fg,ss*dur*1.8);
+      vibratingStrings[si]={amp:7-si*.3,t:30,maxT:30,phase:0};
+      startAnimLoop();
+      spawnHit(getSlideX(),stringYs[si]||0,str.col);
+      sendPitchBend(si,tc+pOffset);
+      sendCC(si,64,Object.keys(PEDAL_DEF).some(k=>pedalActive[k]&&PEDAL_DEF[k].strings.includes(si))?127:0);
+    }
+  });
+
+  // WHY schedDraw (not drawGuitar): avoids racing with touchmove on main thread
+  schedDraw();
+
+  currentStep=(currentStep+1)%numSteps;
+  if(currentStep===0&&oneShot&&!loopOn){stopSeq();return;}
+  stepTimer=setTimeout(scheduleStep,ss*1000-4);
+}
+
+let _vuEl=null;
+function animVU(){
+  if(!playing) return;
+  if(!_vuEl) _vuEl=document.getElementById('vu-fill');
+  const t=performance.now()*.001;
+  const s=.5+Math.sin(t*2.1)*.22+Math.sin(t*5.3)*.1;
+  _vuEl.style.width=Math.min(100,s*Math.pow(10,FX.out/20)*72)+'%';
+  requestAnimationFrame(animVU);
+}
+
+// ════════════════════════════════════════════════
+// CONTROLS
+// ════════════════════════════════════════════════
+document.getElementById('play-btn').addEventListener('click',()=>{playing?stopSeq():startSeq();});
+function toggleLoop(){loopOn=!loopOn; document.getElementById('loop-btn').classList.toggle('on',loopOn);}
+function toggleShot(){oneShot=!oneShot; document.getElementById('shot-btn').classList.toggle('on',oneShot);}
+
+function changeSteps(){
+  const p=numSteps; numSteps=+document.getElementById('step-sel').value;
+  TUNINGS[tuning].strings.forEach((_,si)=>{
+    for(let t=p;t<numSteps;t++) if(!N()[si][t]) N()[si][t]={on:false,vel:100,dur:1};
+  });
+  buildSeqGrid(); schedDraw();
+}
+
+function setTuning(t,btn){
+  tuning=t; initNotes(t);
+  document.querySelectorAll('.hbtn[id^="t-"]').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  buildSeqGrid(); schedDraw();
+}
+
+function setMode(m,btn){
+  mode=m;
+  document.querySelectorAll('.mbtn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  document.getElementById('seq-overlay').classList.toggle('open',m==='seq');
+  if(m==='play') schedDraw();
+}
+
+function setWood(w,btn){
+  currentWood=w;
+  document.querySelectorAll('.wbtn').forEach(b=>{b.classList.remove('on'); b.style.cssText='';});
+  btn.classList.add('on');
+  const wd=WOODS[w];
+  btn.style.background=wd.btnBg; btn.style.color=wd.btnColor; btn.style.borderColor=wd.btnBorder;
+  schedDraw();
+}
+
+function setBar(b,btn){
+  currentBar=b;
+  document.querySelectorAll('.bbtn').forEach(x=>x.classList.remove('on'));
+  btn.classList.add('on');
+  schedDraw();
+}
+
+function clearAll(){
+  TUNINGS[tuning].strings.forEach((_,si)=>{
+    for(let t=0;t<numSteps;t++) notesData[tuning][si][t]={on:false,vel:100,dur:1};
+  });
+  buildSeqGrid(); schedDraw();
+}
+
+// ════════════════════════════════════════════════
+// PATTERN SAVE / LOAD
+// ════════════════════════════════════════════════
+function saveSlot(){
+  const key=`sgfx_slot_${currentSlot}`;
+  try{
+    localStorage.setItem(key,JSON.stringify({tuning,numSteps,notes:notesData[tuning]}));
+    const btn=document.getElementById(`slot-${currentSlot}`);
+    const orig=btn.textContent; btn.textContent='✓'; btn.style.background='#2a6a2a';
+    setTimeout(()=>{btn.textContent=orig; btn.style.background='';},800);
+  }catch(e){alert('Save failed');}
+}
+
+function loadSlot(slot,btn){
+  currentSlot=slot;
+  document.querySelectorAll('.slot-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  try{
+    const raw=localStorage.getItem(`sgfx_slot_${slot}`);
+    if(!raw){clearAll();return;}
+    const data=JSON.parse(raw);
+    if(data.tuning&&data.tuning!==tuning){
+      tuning=data.tuning;
+      document.querySelectorAll('.hbtn[id^="t-"]').forEach(b=>b.classList.remove('on'));
+      document.getElementById('t-'+(tuning==='lap6'?'lap':'e9')).classList.add('on');
+    }
+    if(data.numSteps&&data.numSteps!==numSteps){
+      numSteps=data.numSteps;
+      document.getElementById('step-sel').value=numSteps;
+    }
+    if(data.notes){
+      notesData[tuning]=data.notes;
+      TUNINGS[tuning].strings.forEach((_,si)=>{
+        for(let t=0;t<numSteps;t++) if(!notesData[tuning][si][t]) notesData[tuning][si][t]={on:false,vel:100,dur:1};
+      });
+    }
+    buildSeqGrid(); schedDraw();
+  }catch(e){clearAll();}
+}
+
+window.addEventListener('beforeunload',()=>{
+  try{
+    localStorage.setItem(`sgfx_slot_${currentSlot}`,JSON.stringify({tuning,numSteps,notes:notesData[tuning]}));
+    localStorage.setItem('sgfx_lastSlot',currentSlot);
+  }catch(e){}
+});
+
+// ════════════════════════════════════════════════
+// MIDI EXPORT
+// ════════════════════════════════════════════════
+function freqToMidi(freq){return Math.round(69+12*Math.log2(freq/440));}
+
+function writeVarLen(v){
+  const bytes=[];
+  bytes.unshift(v&0x7f); v>>=7;
+  while(v>0){bytes.unshift((v&0x7f)|0x80); v>>=7;}
+  return bytes;
+}
+
+function exportMIDI(){
+  const bpm=getBPM(), tpb=480, mpb=Math.round(60000000/bpm);
+  const strs=TUNINGS[tuning].strings;
+  const tracks=strs.map((str,si)=>{
+    const evs=[];
+    // RPN bend range
+    evs.push([0,'cc',101,0],[0,'cc',100,0],[0,'cc',6,MIDI_BEND_RANGE],[0,'cc',38,0]);
+    for(let t=0;t<numSteps;t++){
+      const nn=notesData[tuning][si][t];
+      if(nn&&nn.on){
+        const dur=Math.max(1,nn.dur||1);
+        const vel=Math.max(1,Math.min(127,nn.vel||100));
+        const mn=freqToMidi(str.freq);
+        const sTick=t*tpb/4, eTick=sTick+dur*tpb/4-1;
+        // Pitch bend before note
+        const bendVal=Math.round(0+8192); // slide not encoded in export (use flat)
+        evs.push([sTick,'pb',bendVal]);
+        evs.push([sTick,'on',mn,vel]);
+        evs.push([eTick,'off',mn]);
+      }
+    }
+    return evs;
+  });
+
+  const header=[0x4d,0x54,0x68,0x64,0,0,0,6,0,1,(tracks.length>>8)&0xff,tracks.length&0xff,(tpb>>8)&0xff,tpb&0xff];
+  // Tempo track
+  const tempoTrack=[];
+  writeVarLen(0).forEach(b=>tempoTrack.push(b));
+  tempoTrack.push(0,0x51,0x03,(mpb>>16)&0xff,(mpb>>8)&0xff,mpb&0xff);
+  tempoTrack.push(0,0xff,0x2f,0);
+
+  const allTracks=[...header];
+  // Add tempo track
+  allTracks.push(0x4d,0x54,0x72,0x6b);
+  const tl=tempoTrack.length;
+  allTracks.push((tl>>24)&0xff,(tl>>16)&0xff,(tl>>8)&0xff,tl&0xff,...tempoTrack);
+
+  tracks.forEach((evs,si)=>{
+    evs.sort((a,b)=>a[0]-b[0]);
+    const tb=[]; let last=0;
+    evs.forEach(ev=>{
+      const delta=ev[0]-last; last=ev[0];
+      writeVarLen(delta).forEach(b=>tb.push(b));
+      if(ev[1]==='cc') tb.push(0xB0|si,ev[2],ev[3]);
+      else if(ev[1]==='pb'){tb.push(0xE0|si,ev[2]&0x7f,(ev[2]>>7)&0x7f);}
+      else if(ev[1]==='on') tb.push(0x90|si,ev[2],ev[3]);
+      else if(ev[1]==='off') tb.push(0x80|si,ev[2],0);
+    });
+    tb.push(0,0xff,0x2f,0);
+    allTracks.push(0x4d,0x54,0x72,0x6b);
+    const len=tb.length;
+    allTracks.push((len>>24)&0xff,(len>>16)&0xff,(len>>8)&0xff,len&0xff,...tb);
+  });
+
+  const blob=new Blob([new Uint8Array(allTracks)],{type:'audio/midi'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url;
+  a.download=`steelguitar_${tuning}_${currentSlot}_ch.mid`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ════════════════════════════════════════════════
+// FX BINDINGS
+// ════════════════════════════════════════════════
+function bindFX(id,key,toV,toD,cb){
+  document.getElementById('fs-'+id).addEventListener('input',function(){
+    FX[key]=toV(+this.value);
+    document.getElementById('fv-'+id).textContent=toD(FX[key]);
+    if(cb) cb(FX[key]);
+  });
+}
+bindFX('vd','vd',v=>v/100,v=>Math.round(v*100)+'%');
+bindFX('vr','vr',v=>v/10,v=>v.toFixed(1)+'Hz');
+bindFX('pb','pb',v=>v/10,v=>(v>=0?'+':'')+v.toFixed(1)+'st');
+bindFX('gl','gl',v=>v,v=>Math.round(v)+'ms');
+bindFX('tn','tn',v=>v/100,v=>Math.round(v*100)+'%');
+bindFX('rv','rv',v=>v/100,v=>Math.round(v*100)+'%',v=>{if(reverbGain){reverbGain.gain.value=v;dryGain.gain.value=1-v*.5;}});
+bindFX('out','out',v=>v,v=>(v>=0?'+':'')+parseFloat(v).toFixed(1)+'dB');
+
+// ════════════════════════════════════════════════
+// BOOT
+// ════════════════════════════════════════════════
+initNotes('lap6'); initNotes('e9');
+
+// Default pattern
+const defPat=[[0,8,16,24],[4,12,20,28],[2,10,18,26],[6,14,22,30],[1,9,17,25],[5,13,21,29]];
+const defDur=[[2,1,2,1],[1,2,1,2],[2,1,2,1],[1,1,2,1],[2,2,1,1],[1,1,1,2]];
+defPat.forEach((steps,si)=>{
+  steps.forEach((t,idx)=>{
+    if(t<numSteps&&si<6) notesData['lap6'][si][t]={on:true,vel:[100,88,95,82,92,86][si],dur:defDur[si][idx]||1};
+  });
+});
+
+// Restore last slot
+try{
+  const lastSlot=localStorage.getItem('sgfx_lastSlot')||'A';
+  currentSlot=lastSlot;
+  document.querySelectorAll('.slot-btn').forEach(b=>b.classList.remove('active'));
+  const sb=document.getElementById('slot-'+lastSlot); if(sb) sb.classList.add('active');
+  const raw=localStorage.getItem('sgfx_slot_'+lastSlot);
+  if(raw){
+    const data=JSON.parse(raw);
+    if(data.tuning) tuning=data.tuning;
+    if(data.numSteps) numSteps=data.numSteps;
+    if(data.notes) notesData[tuning]=data.notes;
+    document.getElementById('step-sel').value=numSteps;
+    document.querySelectorAll('.hbtn[id^="t-"]').forEach(b=>b.classList.remove('on'));
+    document.getElementById('t-'+(tuning==='lap6'?'lap':'e9')).classList.add('on');
+  }
+}catch(e){}
+
+// Set wood button style
+const _wb=document.getElementById('w-maple');
+if(_wb){_wb.classList.add('on');const _wd=WOODS.maple;_wb.style.background=_wd.btnBg;_wb.style.color=_wd.btnColor;_wb.style.borderColor=_wd.btnBorder;}
+
+setGuitarHeight();
+buildSeqGrid();
+resizeCanvases();
+window.addEventListener('resize',()=>{setGuitarHeight(); resizeCanvases();});
+
+// PWA
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
+  });
+}
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault(); deferredPrompt=e;
+  const hint=document.createElement('button');
+  hint.textContent='⬇ Add to Home Screen';
+  hint.style.cssText='position:fixed;bottom:12px;left:50%;transform:translateX(-50%);background:var(--amber);color:#000;border:none;border-radius:20px;padding:8px 18px;font-family:IBM Plex Mono,monospace;font-size:11px;letter-spacing:.1em;cursor:pointer;z-index:1000;box-shadow:0 4px 16px rgba(0,0,0,.5);';
+  hint.onclick=()=>{deferredPrompt.prompt();deferredPrompt.userChoice.then(()=>{deferredPrompt=null;hint.remove();});};
+  document.body.appendChild(hint);
+  setTimeout(()=>hint.remove(),8000);
+});
+</script>
+</body>
+</html>
