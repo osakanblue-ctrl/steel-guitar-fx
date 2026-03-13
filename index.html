@@ -679,7 +679,8 @@ gWrap.addEventListener('touchstart',e=>{
       activeTouches[t.identifier]='bar';
       slideDragging=true; slideStartX=t.clientX; slideStartPct=slidePct;
     } else if(mode==='play'){
-      // String finger - pluck at touchstart
+      // WHY check: if this ID is already 'bar', don't overwrite it
+      if(activeTouches[t.identifier]==='bar') continue;
       activeTouches[t.identifier]='string';
       TUNINGS[tuning].strings.forEach((_,si)=>{
         if(Math.abs(my-stringYs[si])<22) pluckString(si,mx);
