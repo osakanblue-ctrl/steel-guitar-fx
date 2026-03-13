@@ -905,26 +905,46 @@ function updateBarLayerPos(){
 }
 
 // Bar layer: only handles slide drag
+// WHY barTouchId: When multiple fingers are on screen (bar + plucking),
+// e.touches[0] may point to the plucking finger, not the bar finger.
+// We track the specific touch identifier that started on the bar.
+let barTouchId=null;
+
 barLayer.addEventListener('touchstart',e=>{
   if(mode==='seq') return;
   e.preventDefault(); e.stopPropagation();
-  slideDragging=true;
-  slideStartX=e.touches[0].clientX;
-  slideStartPct=slidePct;
+  // Only grab first new touch on bar layer
+  if(barTouchId===null){
+    const t=e.changedTouches[0];
+    barTouchId=t.identifier;
+    slideDragging=true;
+    slideStartX=t.clientX;
+    slideStartPct=slidePct;
+  }
 },{passive:false});
 
 barLayer.addEventListener('touchmove',e=>{
-  if(!slideDragging) return;
+  if(!slideDragging||barTouchId===null) return;
   e.preventDefault(); e.stopPropagation();
+  // Find the specific touch that controls the bar
+  let barTouch=null;
+  for(let i=0;i<e.touches.length;i++){
+    if(e.touches[i].identifier===barTouchId){barTouch=e.touches[i];break;}
+  }
+  if(!barTouch) return;
   const r=gWrap.getBoundingClientRect();
   const strLen=gc.width-90;
-  const dx=(e.touches[0].clientX-slideStartX)*(gc.width/r.width);
+  const dx=(barTouch.clientX-slideStartX)*(gc.width/r.width);
   slidePct=Math.max(0,Math.min(1,slideStartPct+dx/strLen));
-  updateSlideFX(); schedDraw(); // bar layer pos updated inside drawGuitar via RAF
+  updateSlideFX(); schedDraw();
 },{passive:false});
 
 barLayer.addEventListener('touchend',e=>{
-  slideDragging=false;
+  for(let i=0;i<e.changedTouches.length;i++){
+    if(e.changedTouches[i].identifier===barTouchId){
+      slideDragging=false; barTouchId=null; break;
+    }
+  }
 },{passive:false});
 
 // String layer: only handles plucking (all fingers)
