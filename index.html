@@ -870,7 +870,7 @@ function pluckString(si,hitX){
 
   const bar=getBar();
   const toneGain=(FX.tn-.5)*18+(bar.highShelf||0)*2;
-  playNote(str.freq,Math.min(1.2,velN)*bar.atkM,cents,toneGain,1.4*bar.susM);
+  playNote(str.freq,Math.min(1.2,velN)*bar.atkM,cents,toneGain,1.4*bar.susM,si);
 
   spawnHit(pluckX,stringYs[si]||0,str.col);
   const had=!!vibratingStrings[si];
@@ -914,6 +914,9 @@ function pedalLoop(ts){
     });
   });
 
+  // WHY: retune sustained voices as pedal glides
+  updateAllPitchWithPedal();
+
   pedalRafId=requestAnimationFrame(pedalLoop);
 }
 
@@ -928,9 +931,16 @@ function updateAllPitch(){
   const cents=semitones*100;
   voicePool.forEach(v=>{
     if(!v.active||!v.src||v.stopTime<now) return;
-    const f=v.baseFreq*Math.pow(2,cents/1200);
+    const pedalOffset=v.stringIdx!==undefined?(pedalCents[v.stringIdx]||0):0;
+    const f=v.baseFreq*Math.pow(2,(cents+pedalOffset)/1200);
     v.ksF.frequency.setTargetAtTime(f*6,now,.015);
   });
+}
+
+// WHY updateAllPitchWithPedal: called from pedalLoop each frame.
+// Same as updateAllPitch but triggered by pedal movement instead of bar movement.
+function updateAllPitchWithPedal(){
+  updateAllPitch();
 }
 // which causes GC pauses and main thread jank
 // ════════════════════════════════════════════════
@@ -968,7 +978,7 @@ function buildVoicePool(){
   }
 }
 
-function playNote(freq,velN,centsOff,fgain,dur){
+function playNote(freq,velN,centsOff,fgain,dur,stringIdx){
   if(!ctx_a||!voicePool) return;
   const vol=Math.pow(10,FX.out/20)*.5*velN;
   const now=ctx_a.currentTime;
@@ -1001,9 +1011,10 @@ function playNote(freq,velN,centsOff,fgain,dur){
   ks.buffer=ksBuf; ks.loop=true;
   ks.connect(v.ksF);
   v.src=ks;
-  v.baseFreq=freq; // WHY: store base freq so updateAllPitch() can recalculate
+  v.baseFreq=freq;
   v.active=true;
   v.stopTime=now+dur+.8;
+  v.stringIdx=stringIdx; // WHY: needed for per-string pedal offset in updateAllPitch
   ks.start(now); ks.stop(now+dur+.8);
 }
 
