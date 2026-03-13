@@ -932,60 +932,55 @@ gWrap.addEventListener('mousedown',e=>{
   }
 });
 
-// ── SINGLE OVERLAY TOUCH ──
-// WHY: One overlay handles all touches. barTouchId tracks the specific
-// finger on the bar by identifier. Other fingers fire pluckString.
-// This avoids any layer z-index or event propagation interference.
-const overlay=document.getElementById('interact-layer');
-overlay.style.pointerEvents='auto';
-let barTouchId=null;
+// ── TOUCH HANDLING (ver14 activeTouches approach) ──
+// WHY activeTouches map: each finger tracked by identifier.
+// Bar finger = any touch near bar, stored as 'bar'.
+// Other fingers = 'string', trigger pluckString on touchstart.
+// Reverted from overlay approach - gWrap direct binding is more stable.
+const activeTouches={};
 
-overlay.addEventListener('touchstart',e=>{
+gWrap.addEventListener('touchstart',e=>{
   if(mode==='seq') return;
   e.preventDefault();
   for(let i=0;i<e.changedTouches.length;i++){
-    const t=e.changedTouches[i];
-    const {mx,my}=getGuitarCoords(t.clientX,t.clientY);
-    if(barTouchId===null&&Math.abs(mx-getSlideX())<36){
-      // This finger controls the bar
-      barTouchId=t.identifier;
-      slideDragging=true;
-      slideStartX=t.clientX;
-      slideStartPct=slidePct;
+    const touch=e.changedTouches[i];
+    const {mx:tx,my:ty}=getGuitarCoords(touch.clientX,touch.clientY);
+    if(Math.abs(tx-getSlideX())<28&&ty>4&&ty<gc.height-4){
+      activeTouches[touch.identifier]='bar';
+      slideDragging=true; slideStartX=touch.clientX; slideStartPct=slidePct;
     } else if(mode==='play'){
-      // Any other finger plucks strings
+      activeTouches[touch.identifier]='string';
       TUNINGS[tuning].strings.forEach((_,si)=>{
-        if(Math.abs(my-stringYs[si])<22) pluckString(si,mx);
+        if(Math.abs(ty-stringYs[si])<22) pluckString(si,tx);
       });
     }
   }
 },{passive:false});
 
-overlay.addEventListener('touchmove',e=>{
+gWrap.addEventListener('touchmove',e=>{
+  if(mode==='seq') return;
   e.preventDefault();
   for(let i=0;i<e.changedTouches.length;i++){
-    const t=e.changedTouches[i];
-    if(t.identifier===barTouchId&&slideDragging){
+    const touch=e.changedTouches[i];
+    if(activeTouches[touch.identifier]==='bar'&&slideDragging){
       const r=gWrap.getBoundingClientRect();
       const strLen=gc.width-90;
-      const dx=(t.clientX-slideStartX)*(gc.width/r.width);
+      const dx=(touch.clientX-slideStartX)*(gc.width/r.width);
       slidePct=Math.max(0,Math.min(1,slideStartPct+dx/strLen));
       updateSlideFX(); schedDraw();
     }
   }
 },{passive:false});
 
-overlay.addEventListener('touchend',e=>{
+gWrap.addEventListener('touchend',e=>{
   for(let i=0;i<e.changedTouches.length;i++){
-    if(e.changedTouches[i].identifier===barTouchId){
-      slideDragging=false; barTouchId=null;
-    }
+    const id=e.changedTouches[i].identifier;
+    if(activeTouches[id]==='bar') slideDragging=false;
+    delete activeTouches[id];
   }
-},{passive:false});
+});
 
-overlay.addEventListener('touchcancel',()=>{
-  slideDragging=false; barTouchId=null;
-},{passive:false});
+document.addEventListener('touchend',()=>{slideDragging=false; durDragging=false;});
 document.addEventListener('touchmove',e=>{
   if(durDragging){
     const dx=e.touches[0].clientX-durStartX;
