@@ -767,28 +767,58 @@ gWrap.addEventListener('mousedown',e=>{
   }
 });
 
+// WHY multi-touch: Steel guitar technique uses bar (one hand) + 3-finger picking (other hand).
+// We track each touch point separately:
+// - Touch near slide bar → move bar (pitch control)
+// - Touch on strings → pluck that string (can do multiple simultaneously)
+const activeTouches={}; // track which touches are on bar vs strings
+
 gWrap.addEventListener('touchstart',e=>{
   if(mode==='seq') return;
   e.preventDefault();
-  const {mx:tx,my:ty}=getGuitarCoords(e.touches[0].clientX,e.touches[0].clientY);
-  if(Math.abs(tx-getSlideX())<28&&ty>4&&ty<gc.height-4){
-    slideDragging=true; slideStartX=e.touches[0].clientX; slideStartPct=slidePct; return;
-  }
-  if(mode==='play'){
-    TUNINGS[tuning].strings.forEach((_,si)=>{
-      if(Math.abs(ty-stringYs[si])<22) pluckString(si,tx);
-    });
+
+  // Process ALL new touches (not just first)
+  for(let i=0;i<e.changedTouches.length;i++){
+    const touch=e.changedTouches[i];
+    const {mx:tx,my:ty}=getGuitarCoords(touch.clientX,touch.clientY);
+
+    if(Math.abs(tx-getSlideX())<28&&ty>4&&ty<gc.height-4){
+      // This touch controls the slide bar
+      activeTouches[touch.identifier]='bar';
+      slideDragging=true; slideStartX=touch.clientX; slideStartPct=slidePct;
+    } else if(mode==='play'){
+      // This touch plucks a string
+      activeTouches[touch.identifier]='string';
+      TUNINGS[tuning].strings.forEach((_,si)=>{
+        if(Math.abs(ty-stringYs[si])<22) pluckString(si,tx);
+      });
+    }
   }
 },{passive:false});
-document.addEventListener('touchmove',e=>{
-  if(!slideDragging) return;
-  const wrap=document.getElementById('guitar-wrap');
-  const r=wrap.getBoundingClientRect();
-  const strLen=gc.width-90;
-  const dx=(e.touches[0].clientX-slideStartX)*(gc.width/r.width);
-  slidePct=Math.max(0,Math.min(1,slideStartPct+dx/strLen));
-  updateSlideFX(); drawGuitar();
-},{passive:true});
+
+gWrap.addEventListener('touchmove',e=>{
+  if(mode==='seq') return;
+  e.preventDefault();
+  for(let i=0;i<e.changedTouches.length;i++){
+    const touch=e.changedTouches[i];
+    if(activeTouches[touch.identifier]==='bar'&&slideDragging){
+      const r=gWrap.getBoundingClientRect();
+      const strLen=gc.width-90;
+      const dx=(touch.clientX-slideStartX)*(gc.width/r.width);
+      slidePct=Math.max(0,Math.min(1,slideStartPct+dx/strLen));
+      updateSlideFX(); drawGuitar();
+    }
+  }
+},{passive:false});
+
+gWrap.addEventListener('touchend',e=>{
+  for(let i=0;i<e.changedTouches.length;i++){
+    const id=e.changedTouches[i].identifier;
+    if(activeTouches[id]==='bar') slideDragging=false;
+    delete activeTouches[id];
+  }
+});
+// Slide bar touchmove handled in gWrap touchmove above (multi-touch)
 document.addEventListener('touchmove',e=>{
   if(durDragging){
     const dx=e.touches[0].clientX-durStartX;
@@ -833,17 +863,30 @@ function updateSlideFX(){
   document.getElementById('fv-pb').textContent=(s>=0?'+':'')+s.toFixed(1)+'st';
 }
 
-function pluckString(si,hitX){
+function pluckString(si, hitX){
+  // WHY: Real steel guitar pitch = where the bar touches the string.
+  // We calculate pitch from slide bar position at the moment of plucking.
   if(!ctx_a){ctx_a=new (window.AudioContext||window.webkitAudioContext)();buildReverb();}
   const str=TUNINGS[tuning].strings[si];
+
+  // Slide bar position maps to semitones (0.0=open, 1.0=~14 semitones up)
+  // Range: open string (slidePct~0) to ~14 semitones (slidePct=1.0)
+  // WHY 0.35 offset: positions bar at "open string" area by default
   const semitones=(slidePct-.35)*28;
-  playNote(str.freq,1.0,semitones*100,(FX.tn-.5)*18,1.4);
-  // Particles
-  const r=gc2.getBoundingClientRect();
-  const sy=stringYs[si]*(r.height/gc2.height);
-  const sx=(hitX||getSlideX())*(r.width/gc2.width);
-  spawnHit(hitX||getSlideX(),stringYs[si],str.col);
-  // Vibration
+  const cents=semitones*100;
+
+  // Velocity based on how far from bar the string was plucked
+  // WHY: Real playing - plucking near bridge = brighter/louder
+  const strStart=60, strEnd=gc.width-30;
+  const barX=strStart+slidePct*(strEnd-strStart);
+  const pluckX=hitX||barX;
+  const distFromBar=Math.abs(pluckX-barX)/(strEnd-strStart);
+  const vel=0.7+distFromBar*0.5; // 0.7~1.2 range
+
+  playNote(str.freq, Math.min(1.2,vel), cents, (FX.tn-.5)*18, 1.4);
+
+  // Visual: particles at pluck point, vibration on string
+  spawnHit(pluckX, stringYs[si], str.col);
   const had=!!vibratingStrings[si];
   vibratingStrings[si]={amp:8-si*0.5,t:40,maxT:40,phase:0};
   if(!had) animVibration();
