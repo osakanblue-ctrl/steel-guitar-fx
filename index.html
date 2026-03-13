@@ -180,8 +180,10 @@ body::after{content:'';position:fixed;inset:0;background-image:url("data:image/s
       <canvas id="hit-canvas" class="hit-canvas"></canvas>
       <div id="interact-layer" class="interact-layer"></div>
       <!-- WHY two layers: bar-layer handles slide bar drag, string-layer handles plucking. No interference. -->
-      <div id="bar-layer" style="position:absolute;top:0;left:0;right:0;height:50%;pointer-events:none;touch-action:none;z-index:4;"></div>
-      <div id="string-layer" style="position:absolute;inset:0;touch-action:none;z-index:3;-webkit-user-select:none;user-select:none;"></div>
+      <!-- bar-layer: z-index:5 = above string-layer, clip-path defines hit area around bar -->
+      <div id="bar-layer" style="position:absolute;inset:0;pointer-events:none;touch-action:none;z-index:5;"></div>
+      <!-- string-layer: z-index:4 = below bar-layer, handles plucking everywhere else -->
+      <div id="string-layer" style="position:absolute;inset:0;touch-action:none;z-index:4;-webkit-user-select:none;user-select:none;"></div>
       <!-- Sequencer overlay -->
       <div class="seq-overlay" id="seq-overlay">
         <div class="seq-close"><button onclick="setMode('play',document.getElementById('mb-play'))">Close</button></div>
