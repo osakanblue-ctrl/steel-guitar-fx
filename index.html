@@ -836,7 +836,7 @@ function animHits(){
 let vibratingStrings={};
 function animVibration(){
   if(Object.keys(vibratingStrings).length===0) return;
-  drawGuitar();
+  schedDraw();
   // Draw vibration waves over strings
   const strs=TUNINGS[tuning].strings;
   const W=gc.width, strStart=60, strEnd=W-30;
@@ -934,7 +934,7 @@ overlay.addEventListener('touchmove',e=>{
       const strLen=gc.width-90;
       const dx=(t.clientX-slideStartX)*(gc.width/r.width);
       slidePct=Math.max(0,Math.min(1,slideStartPct+dx/strLen));
-      updateSlideFX(); drawGuitar();
+      updateSlideFX(); schedDraw();
     }
   }
 },{passive:false});
@@ -1303,14 +1303,20 @@ function scheduleStep(){
     const nn=N()[si][currentStep];
     if(nn&&nn.on){
       const dur=Math.max(1,nn.dur||1);
-      playNote(str.freq,nn.vel/127,tc,fg,ss*dur*1.8);
+      const pOffset=pedalCents[si]||0;
+      playNote(str.freq,nn.vel/127,tc+pOffset,fg,ss*dur*1.8);
       const had=!!vibratingStrings[si];
       vibratingStrings[si]={amp:7-si*.3,t:30,maxT:30,phase:0};
       if(!had) animVibration();
       spawnHit(getSlideX(),stringYs[si]||0,str.col);
+      // MIDI out: pitch bend per string channel
+      sendPitchBend(si, tc+pOffset);
+      const pedalOn=Object.keys(PEDAL_TARGETS).some(k=>pedalStates[k]&&PEDAL_TARGETS[k].strings.includes(si));
+      sendCC(si, 64, pedalOn?127:0);
     }
   });
-  drawGuitar();
+  // WHY schedDraw: avoids competing with touchmove drawGuitar on main thread
+  schedDraw();
 
   currentStep=(currentStep+1)%numSteps;
   if(currentStep===0&&oneShot&&!loopOn){stopSeq();return;}
