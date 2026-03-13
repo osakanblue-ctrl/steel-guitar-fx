@@ -162,6 +162,8 @@ input[type=range]{width:100%;height:4px;accent-color:var(--amber);cursor:pointer
   </div>
 
 </div><!-- #app -->
+<!-- Hidden file input for JSON import -->
+<input type="file" id="import-file" accept=".json" style="display:none" onchange="importPatterns(event)">
 
 <!-- SEQUENCER OVERLAY -->
 <div id="seq-overlay">
@@ -182,6 +184,8 @@ input[type=range]{width:100%;height:4px;accent-color:var(--amber);cursor:pointer
     <button class="ctl-btn" id="shot-btn" onclick="toggleShot()">1Shot</button>
     <button class="ctl-btn" onclick="clearAll()">Clear</button>
     <button class="ctl-btn" onclick="exportMIDI()">MIDI</button>
+    <button class="ctl-btn" onclick="exportPatterns()">JSON↓</button>
+    <button class="ctl-btn" onclick="document.getElementById('import-file').click()">JSON↑</button>
     <button class="mbtn on" onclick="setMode('play',document.getElementById('mb-play'))">✕ Close</button>
   </div>
   <!-- SLOT BUTTONS -->
@@ -376,6 +380,11 @@ let midiOutput=null;
 
 // Canvas
 const gc=document.getElementById('gc');
+// WHY woodOffscreen: pre-render wood grain once per wood/resize, reuse every frame.
+// Eliminates per-frame Math.random() calls and stops grain flickering.
+const woodOffscreen=document.createElement('canvas');
+const woodOctx=woodOffscreen.getContext('2d');
+let woodCacheValid=false; // invalidated on wood change or resize
 const gctx=gc.getContext('2d');
 const gc2=document.getElementById('gc2');
 const hctx=gc2.getContext('2d');
@@ -523,30 +532,51 @@ function drawGuitar(){
   drawVibrations(W);
 }
 
-function drawWoodGrain(ctx,W,H){
+function buildWoodCache(W,H){
+  // WHY: called only on wood change or canvas resize. Grain is stable per session.
+  woodOffscreen.width=W; woodOffscreen.height=H;
   const wd=getWood();
-  wd.base(ctx,W,H);
-  ctx.save();
+  wd.base(woodOctx,W,H);
+  woodOctx.save();
+  // Gemini-inspired bezierCurveTo grain: more organic than sin-wave
   for(let i=0;i<wd.gn;i++){
-    const y=Math.random()*H;
-    const alpha=Math.random()*.08+.01;
-    ctx.strokeStyle=`${wd.gc}${alpha})`;
-    ctx.lineWidth=Math.random()*1.5+.3;
-    ctx.beginPath(); ctx.moveTo(0,y);
-    for(let x=0;x<W;x+=40){
-      ctx.lineTo(x,y+Math.sin(x*wd.gf+i*.3)*wd.ga*(Math.random()*.5+.75));
-    }
-    ctx.stroke();
+    const y=_seededRand(i*3)*H;
+    const alpha=_seededRand(i*3+1)*.08+.01;
+    woodOctx.strokeStyle=`${wd.gc}${alpha})`;
+    woodOctx.lineWidth=_seededRand(i*3+2)*1.5+.3;
+    woodOctx.beginPath();
+    woodOctx.moveTo(0,y);
+    woodOctx.bezierCurveTo(
+      W/3, y+(_seededRand(i*7+1)-.5)*wd.ga*2,
+      W*2/3, y+(_seededRand(i*7+2)-.5)*wd.ga*2,
+      W, y+(_seededRand(i*7+3)-.5)*wd.ga
+    );
+    woodOctx.stroke();
   }
-  ctx.restore();
+  woodOctx.restore();
   // Gloss
-  const gloss=ctx.createLinearGradient(0,0,0,H*.4);
+  const gloss=woodOctx.createLinearGradient(0,0,0,H*.4);
   gloss.addColorStop(0,'rgba(255,200,100,.06)');gloss.addColorStop(.5,'rgba(255,200,100,.02)');gloss.addColorStop(1,'rgba(255,200,100,0)');
-  ctx.fillStyle=gloss; ctx.fillRect(0,0,W,H*.4);
+  woodOctx.fillStyle=gloss; woodOctx.fillRect(0,0,W,H*.4);
   // Vignette
-  const vig=ctx.createRadialGradient(W/2,H/2,H*.25,W/2,H/2,H*.8);
+  const vig=woodOctx.createRadialGradient(W/2,H/2,H*.25,W/2,H/2,H*.8);
   vig.addColorStop(0,'rgba(0,0,0,0)'); vig.addColorStop(1,'rgba(0,0,0,.45)');
-  ctx.fillStyle=vig; ctx.fillRect(0,0,W,H);
+  woodOctx.fillStyle=vig; woodOctx.fillRect(0,0,W,H);
+  woodCacheValid=true;
+}
+
+// WHY seeded rand: grain lines are deterministic (same pattern each session).
+// Simple LCG - fast, no library needed, no Math.random() per frame.
+function _seededRand(n){
+  let x=Math.sin(n+1)*43758.5453;
+  return x-Math.floor(x);
+}
+
+function drawWoodGrain(ctx,W,H){
+  if(!woodCacheValid||woodOffscreen.width!==W||woodOffscreen.height!==H){
+    buildWoodCache(W,H);
+  }
+  ctx.drawImage(woodOffscreen,0,0);
 }
 
 function drawString(ctx,x1,y,x2,_y2,str){
@@ -570,38 +600,67 @@ function drawPeg(ctx,x,y){
   ctx.fillStyle='#c8a830'; ctx.fill();
 }
 
-// WHY position markers: Steel guitar has no frets, but position dots
-// help the player know where specific notes/intervals are.
-// Standard positions: 3,5,7,10,12,15,17 (like guitar fret dots)
+// WHY position markers + inlays: visual guide for note positions.
+// Triangle inlays (top+bottom) mirror real steel guitar neck inlays.
+// 12th position gets diamond (double) inlay = octave marker convention.
 function drawPositionMarkers(ctx,W,H){
   const strStart=60, strLen=W-90;
   const positions=[3,5,7,10,12,15,17];
   const strAreaTop=H*.18, strAreaBot=H*.82;
   ctx.save();
   positions.forEach(pos=>{
-    // Map position to X: pos 0=nut(strStart), pos 24=bridge(strEnd)
     const x=strStart+(pos/24)*strLen;
-    // Faint vertical line
-    ctx.strokeStyle='rgba(255,220,100,.12)';
+    const sz=9; // inlay size
+
+    // Faint vertical guide line
+    ctx.strokeStyle='rgba(255,220,100,.10)';
     ctx.lineWidth=1;
-    ctx.setLineDash([3,3]);
+    ctx.setLineDash([3,4]);
     ctx.beginPath();
     ctx.moveTo(x,strAreaTop-4);
     ctx.lineTo(x,strAreaBot+4);
     ctx.stroke();
     ctx.setLineDash([]);
-    // Position number below strings
-    ctx.font='7px IBM Plex Mono,monospace';
-    ctx.fillStyle='rgba(200,160,60,.5)';
-    ctx.textAlign='center';
-    ctx.fillText(pos,x,strAreaBot+14);
-    // Dot at top for pos 12 (octave)
+
+    // Pearl inlay fill
+    const inlayGrad=ctx.createRadialGradient(x,strAreaTop-sz*1.5,1,x,strAreaTop-sz*1.5,sz*1.2);
+    inlayGrad.addColorStop(0,'rgba(240,240,255,.95)');
+    inlayGrad.addColorStop(.5,'rgba(180,190,220,.7)');
+    inlayGrad.addColorStop(1,'rgba(120,130,160,.2)');
+    ctx.fillStyle=inlayGrad;
+
     if(pos===12){
+      // 12th: double diamond (top + bottom)
+      [strAreaTop-sz*2.2, strAreaBot+sz*0.8].forEach(cy=>{
+        ctx.beginPath();
+        ctx.moveTo(x, cy-sz); ctx.lineTo(x+sz*.7, cy);
+        ctx.lineTo(x, cy+sz); ctx.lineTo(x-sz*.7, cy);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle='rgba(200,210,255,.5)'; ctx.lineWidth=.8; ctx.stroke();
+      });
+    } else {
+      // Other positions: triangle top (pointing down) + triangle bottom (pointing up)
+      // Top triangle
       ctx.beginPath();
-      ctx.arc(x,strAreaTop-8,3,0,Math.PI*2);
-      ctx.fillStyle='rgba(232,180,60,.4)';
-      ctx.fill();
+      ctx.moveTo(x-sz*.8, strAreaTop-sz*2);
+      ctx.lineTo(x+sz*.8, strAreaTop-sz*2);
+      ctx.lineTo(x, strAreaTop-sz*0.5);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle='rgba(200,210,255,.4)'; ctx.lineWidth=.8; ctx.stroke();
+      // Bottom triangle
+      ctx.beginPath();
+      ctx.moveTo(x-sz*.8, strAreaBot+sz*1.5);
+      ctx.lineTo(x+sz*.8, strAreaBot+sz*1.5);
+      ctx.lineTo(x, strAreaBot+sz*0.0);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle='rgba(200,210,255,.4)'; ctx.lineWidth=.8; ctx.stroke();
     }
+
+    // Position number
+    ctx.font='7px IBM Plex Mono,monospace';
+    ctx.fillStyle='rgba(200,160,60,.6)';
+    ctx.textAlign='center';
+    ctx.fillText(pos,x,strAreaBot+sz*3.2);
   });
   ctx.restore();
 }
@@ -702,6 +761,7 @@ function spawnHit(x,y,col){
 // RESIZE
 // ════════════════════════════════════════════════
 function resizeCanvases(){
+  woodCacheValid=false; // WHY: canvas size changed, rebuild wood cache
   const r=gWrap.getBoundingClientRect();
   const W=Math.round(r.width), H=Math.round(r.height);
   gc.width=W; gc.height=H;
@@ -713,7 +773,7 @@ function setGuitarHeight(){
   // WHY: Guitar gets a fixed % of viewport height to leave room for controls
   const vh=window.innerHeight;
   const ctrlH=230; // approximate height of controls above/below
-  const h=Math.max(140,Math.min(320,vh-ctrlH));
+  const h=Math.max(160,Math.min(420,vh-ctrlH));
   gWrap.style.height=h+'px';
 }
 
@@ -1337,7 +1397,7 @@ function setMode(m,btn){
 }
 
 function setWood(w,btn){
-  currentWood=w;
+  currentWood=w; woodCacheValid=false; // WHY: force grain rebuild on wood change
   document.querySelectorAll('.wbtn').forEach(b=>{b.classList.remove('on'); b.style.cssText='';});
   btn.classList.add('on');
   const wd=WOODS[w];
@@ -1409,6 +1469,61 @@ window.addEventListener('beforeunload',()=>{
 // ════════════════════════════════════════════════
 // MIDI EXPORT
 // ════════════════════════════════════════════════
+// ════════════════════════════════════════════════
+// PATTERN JSON EXPORT / IMPORT (Gemini案採用)
+// WHY: localStorage is per-browser. JSON file lets users back up, share,
+// and restore patterns across devices.
+// ════════════════════════════════════════════════
+function exportPatterns(){
+  const payload={
+    version:3,
+    tuning,numSteps,
+    notes:notesData,
+    exported:new Date().toISOString().slice(0,10)
+  };
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`sgfx_patterns_${payload.exported}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importPatterns(event){
+  const file=event.target.files[0];
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      // WHY validate: prevent crash from malformed files
+      if(typeof data!=='object'||!data.notes) throw new Error('invalid');
+      if(data.tuning) tuning=data.tuning;
+      if(data.numSteps) numSteps=data.numSteps;
+      Object.assign(notesData, data.notes);
+      // Ensure all cells exist after import
+      ['lap6','e9'].forEach(t=>{
+        if(notesData[t]) TUNINGS[t].strings.forEach((_,si)=>{
+          for(let step=0;step<numSteps;step++)
+            if(!notesData[t][si]||!notesData[t][si][step])
+              notesData[t]={...notesData[t],[si]:{...(notesData[t][si]||{}),[step]:{on:false,vel:100,dur:1}}};
+        });
+      });
+      document.getElementById('step-sel').value=numSteps;
+      document.querySelectorAll('.hbtn[id^="t-"]').forEach(b=>b.classList.remove('on'));
+      document.getElementById('t-'+(tuning==='lap6'?'lap':'e9')).classList.add('on');
+      buildSeqGrid(); schedDraw();
+      // Reset file input so same file can be re-imported
+      event.target.value='';
+    }catch(err){
+      alert('読み込み失敗：JSONファイルを確認してください');
+      event.target.value='';
+    }
+  };
+  reader.readAsText(file);
+}
+
 function freqToMidi(freq){return Math.round(69+12*Math.log2(freq/440));}
 
 function writeVarLen(v){
