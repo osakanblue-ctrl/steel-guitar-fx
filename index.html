@@ -1004,7 +1004,7 @@ function updateSlideFX(){
 }
 
 function pluckString(si,hitX){
-  if(!ctx_a){ctx_a=new (window.AudioContext||window.webkitAudioContext)();buildReverb();}
+  if(!ctx_a){ctx_a=new (window.AudioContext||window.webkitAudioContext)();buildReverb().catch(console.error);}
   const str=TUNINGS[tuning].strings[si];
   const semitones=(slidePct-.35)*28;
   const bar=getBar();
@@ -1215,6 +1215,95 @@ function updateVB(si,t){
 // ════════════════════════════════════════════════
 // AUDIO
 // ════════════════════════════════════════════════
+// ════════════════════════════════════════════════
+// AUDIO - AudioWorklet based Karplus-Strong
+// WHY AudioWorklet: Karplus-Strong runs on the audio thread (not main thread).
+// This eliminates the jank caused by buffer generation blocking touch events.
+// Same architecture as JUCE's processBlock() - good practice for DAW port.
+// ════════════════════════════════════════════════
+
+// AudioWorklet processor code as inline string (no separate file needed)
+const KS_WORKLET_CODE=`
+class KarplusStrongProcessor extends AudioWorkletProcessor {
+  static get parameterDescriptors(){
+    return [
+      {name:'freq',       defaultValue:440,  minValue:20,   maxValue:8000},
+      {name:'gain',       defaultValue:0.5,  minValue:0,    maxValue:2},
+      {name:'brightness', defaultValue:0.5,  minValue:0,    maxValue:1},
+      {name:'sustain',    defaultValue:0.5,  minValue:0,    maxValue:1}
+    ];
+  }
+  constructor(){
+    super();
+    this._active=false;
+    this._buf=null;
+    this._pos=0;
+    this._env=0;
+    this._envDecay=0.9995;
+    this._age=0;
+    this._maxAge=0;
+    this.port.onmessage=e=>{
+      if(e.data.type==='pluck'){
+        const {freq,sampleRate,brightness,sustain}=e.data;
+        const size=Math.max(2,Math.round(sampleRate/freq));
+        this._buf=new Float32Array(size);
+        // Fill with filtered noise (brightness controls initial spectrum)
+        for(let i=0;i<size;i++) this._buf[i]=(Math.random()*2-1);
+        // Simple low-pass pre-filter on initial buffer
+        const b=Math.max(0.1,Math.min(0.99,brightness));
+        for(let i=1;i<size;i++) this._buf[i]=this._buf[i]*(b)+(this._buf[i-1])*(1-b);
+        this._pos=0;
+        this._env=1.0;
+        this._envDecay=0.9998+sustain*0.0001; // sustain affects decay rate
+        this._age=0;
+        this._maxAge=sampleRate*(0.5+sustain*3); // max 3.5s
+        this._active=true;
+      }
+    };
+  }
+  process(inputs,outputs,parameters){
+    if(!this._active||!this._buf) return true;
+    const out=outputs[0][0];
+    const size=this._buf.length;
+    const gain=parameters.gain[0];
+    // Karplus-Strong loop: feedback + low-pass averaging
+    const fb=0.996; // feedback coefficient
+    for(let i=0;i<out.length;i++){
+      const curr=this._buf[this._pos];
+      const next=this._buf[(this._pos+1)%size];
+      // Low-pass: average current + next sample (classic KS)
+      this._buf[this._pos]=(curr+next)*0.5*fb;
+      out[i]=curr*this._env*gain;
+      this._env*=this._envDecay;
+      this._pos=(this._pos+1)%size;
+      this._age++;
+    }
+    if(this._age>=this._maxAge||this._env<0.0001){
+      this._active=false;
+      out.fill(0);
+    }
+    return true;
+  }
+}
+registerProcessor('karplus-strong',KarplusStrongProcessor);
+`;
+
+// Register worklet from inline blob
+let workletReady=false;
+let workletReadyPromise=null;
+
+async function ensureWorklet(){
+  if(workletReady) return;
+  if(workletReadyPromise) return workletReadyPromise;
+  const blob=new Blob([KS_WORKLET_CODE],{type:'application/javascript'});
+  const url=URL.createObjectURL(blob);
+  workletReadyPromise=ctx_a.audioWorklet.addModule(url).then(()=>{
+    workletReady=true;
+    URL.revokeObjectURL(url);
+  });
+  return workletReadyPromise;
+}
+
 async function buildReverb(){
   const sr=ctx_a.sampleRate,len=sr*2.8;
   const buf=ctx_a.createBuffer(2,len,sr);
@@ -1224,51 +1313,23 @@ async function buildReverb(){
   dryGain=ctx_a.createGain(); dryGain.gain.value=1-FX.rv*.5;
   reverbConv.connect(reverbGain); reverbGain.connect(ctx_a.destination);
   dryGain.connect(ctx_a.destination);
-  buildVoicePool(); // WHY: build pool after reverb so env can connect to reverbConv
-}
-// ── MIDI OUTPUT (for DAW sync) ──
-// WHY: Allows real-time pitch bend and pedal CC to be sent to DAW during playback.
-// Gemini proposal:弦ごとにMIDIチャンネルを分けてMPE的な構造にする。
-const MIDI_BEND_RANGE=12; // semitones; must match DAW's pitch bend range setting
-let midiOutput=null; // set after requestMIDIAccess
-
-function initMIDIOutput(access){
-  // Pick first available output
-  access.outputs.forEach(out=>{ if(!midiOutput) midiOutput=out; });
-  access.onstatechange=()=>{
-    midiOutput=null;
-    access.outputs.forEach(out=>{ if(!midiOutput) midiOutput=out; });
-  };
+  // Pre-register worklet while reverb builds
+  await ensureWorklet();
+  await buildVoicePool(); // WHY here: pool needs reverb nodes to connect to
 }
 
-function sendPitchBend(ch, cents){
-  // WHY: MIDI pitch bend range = -8192..+8191, mapped over MIDI_BEND_RANGE semitones
-  if(!midiOutput) return;
-  const semitones=cents/100;
-  const normalized=semitones/MIDI_BEND_RANGE; // -1.0 to +1.0
-  const value=Math.round(normalized*8191+8192); // 0..16383
-  const msb=(value>>7)&0x7f;
-  const lsb=value&0x7f;
-  midiOutput.send([0xE0|(ch&0x0f), lsb, msb]);
-}
-
-function sendCC(ch, cc, val){
-  if(!midiOutput) return;
-  midiOutput.send([0xB0|(ch&0x0f), cc&0x7f, Math.max(0,Math.min(127,val))&0x7f]);
-}
-
-// WHY voice pool: Creating AudioNodes on every pluck causes GC pressure and
-// main-thread jank. Pre-built fixed graph - playNote only sets param values.
+// Voice pool: AudioWorkletNode instances (pre-allocated, no per-note creation)
 const VOICE_POOL_SIZE=8;
 let voicePool=null;
 let voiceIdx=0;
 
-function buildVoicePool(){
+async function buildVoicePool(){
+  await ensureWorklet();
   voicePool=[];
   const dest=dryGain||ctx_a.destination;
   for(let i=0;i<VOICE_POOL_SIZE;i++){
-    const ksFilter=ctx_a.createBiquadFilter();
-    ksFilter.type='lowpass'; ksFilter.Q.value=0.5;
+    // Each voice: KarplusStrongWorklet → toneFilter → midFilter → highFilter → env → dest
+    const ksNode=new AudioWorkletNode(ctx_a,'karplus-strong');
     const toneFilter=ctx_a.createBiquadFilter();
     toneFilter.type='lowpass'; toneFilter.Q.value=0.8;
     const midFilter=ctx_a.createBiquadFilter();
@@ -1276,55 +1337,58 @@ function buildVoicePool(){
     const highFilter=ctx_a.createBiquadFilter();
     highFilter.type='highshelf'; highFilter.frequency.value=3000;
     const env=ctx_a.createGain(); env.gain.value=0;
-    ksFilter.connect(toneFilter);
+    ksNode.connect(toneFilter);
     toneFilter.connect(midFilter);
     midFilter.connect(highFilter);
     highFilter.connect(env);
     env.connect(dest);
     if(reverbConv) env.connect(reverbConv);
-    voicePool.push({ksFilter,toneFilter,midFilter,highFilter,env,src:null});
+    voicePool.push({ksNode,toneFilter,midFilter,highFilter,env});
   }
 }
 
 function playNote(freq,velN,centsOff,fgain,dur){
-  if(!ctx_a) return;
-  if(!voicePool) buildVoicePool();
+  if(!ctx_a||!voicePool) return;
   const vol=Math.pow(10,FX.out/20)*.5*velN;
   const now=ctx_a.currentTime;
   const f=freq*Math.pow(2,centsOff/1200);
+
+  // Round-robin voice selection
   const v=voicePool[voiceIdx%VOICE_POOL_SIZE]; voiceIdx++;
-  if(v.src){try{v.src.stop();}catch(e){} v.src=null;}
-  // Only alloc: the noise buffer (unavoidable per-note)
-  const bufSize=Math.max(2,Math.round(ctx_a.sampleRate/f));
-  const ksBuf=ctx_a.createBuffer(1,bufSize,ctx_a.sampleRate);
-  const d=ksBuf.getChannelData(0);
-  for(let i=0;i<bufSize;i++) d[i]=Math.random()*2-1;
-  // Update filter params only - no node creation
+
+  // Update filter params (no allocation)
   const wd=getWood();
-  v.ksFilter.frequency.setValueAtTime(f*6,now);
+  const bar=getBar();
   v.toneFilter.frequency.setValueAtTime(wd.ffreq+(fgain||0)*60,now);
-  v.midFilter.gain.setValueAtTime(wd.mid||0,now);
-  v.highFilter.gain.setValueAtTime(wd.highShelf||0,now);
-  const atk=0.001*(wd.atkM||1);
+  v.midFilter.gain.setValueAtTime((wd.mid||0)+(bar.mid||0),now);
+  v.highFilter.gain.setValueAtTime((wd.highShelf||0)+(bar.highShelf||0),now);
+
+  // Envelope
+  const atk=0.001*(wd.atkM||1)*(bar.atkM||1);
   v.env.gain.cancelScheduledValues(now);
   v.env.gain.setValueAtTime(0,now);
   v.env.gain.linearRampToValueAtTime(vol,now+atk);
-  v.env.gain.setTargetAtTime(vol*.7,now+atk,.08*(wd.susM||1));
+  v.env.gain.setTargetAtTime(vol*.7,now+atk,.08*(wd.susM||1)*(bar.susM||1));
   v.env.gain.setTargetAtTime(0,now+dur*.5,dur*.35*(wd.susM||1));
-  const ks=ctx_a.createBufferSource();
-  ks.buffer=ksBuf; ks.loop=true;
-  ks.connect(v.ksFilter);
-  v.src=ks;
-  ks.start(now); ks.stop(now+dur+.8);
-}
 
+  // WHY postMessage: triggers Karplus-Strong on audio thread (not main thread).
+  // No buffer allocation on main thread - zero jank.
+  const brightness=Math.max(0.1,Math.min(0.99,(wd.ffreq||2200)/4000));
+  v.ksNode.port.postMessage({
+    type:'pluck',
+    freq:f,
+    sampleRate:ctx_a.sampleRate,
+    brightness,
+    sustain:(wd.susM||1)-0.5
+  });
+}
 // ════════════════════════════════════════════════
 // SEQUENCER PLAYBACK
 // ════════════════════════════════════════════════
 function getBPM(){return Math.max(40,Math.min(240,parseFloat(document.getElementById('bpm-in').value)||90));}
 
 function startSeq(){
-  if(!ctx_a){ctx_a=new (window.AudioContext||window.webkitAudioContext)();buildReverb();}
+  if(!ctx_a){ctx_a=new (window.AudioContext||window.webkitAudioContext)();buildReverb().catch(console.error);}
   playing=true;currentStep=0;vibratoPhase=0;pitchCurrent=0;
   scheduleStep();animVU();
   document.getElementById('play-ico').innerHTML='<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
