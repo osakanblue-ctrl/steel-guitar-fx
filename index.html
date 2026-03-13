@@ -93,7 +93,6 @@ select{background:var(--panel);border:1px solid var(--border);color:var(--cream)
 .fx-lbl{font-size:8px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;}
 .fx-val{font-size:9px;color:var(--amber);text-align:right;}
 input[type=range]{width:100%;height:4px;accent-color:var(--amber);cursor:pointer;}
-#dbg{position:fixed;bottom:0;left:0;right:0;height:120px;background:rgba(0,0,0,.85);color:#0f0;font-size:9px;font-family:monospace;overflow-y:auto;padding:4px;z-index:9999;pointer-events:none;}
 </style>
 </head>
 <body>
@@ -200,19 +199,10 @@ input[type=range]{width:100%;height:4px;accent-color:var(--amber);cursor:pointer
   <div id="seq-grid-wrap"><div id="seq-grid"></div></div>
 </div>
 
-<div id="dbg"></div>
-
 <script>
 'use strict';
 // On-screen debug log (no PC needed)
-const _dbg=document.getElementById('dbg');
-let _dbgLines=[];
-function dbgLog(msg){
-  _dbgLines.push(msg);
-  if(_dbgLines.length>30) _dbgLines.shift();
-  _dbg.textContent=_dbgLines.join('\n');
-  _dbg.scrollTop=_dbg.scrollHeight;
-}
+function dbgLog(msg){console.log(msg);}
 // ════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ════════════════════════════════════════════════
@@ -426,6 +416,7 @@ barLayer.addEventListener('touchmove',e=>{
   const dx=(t.clientX-slideStartX)*(gc.width/r.width);
   slidePct=Math.max(0,Math.min(1,slideStartPct+dx/(gc.width-90)));
   updateSlideFX();
+  updateAllPitch(); // WHY: retune sustained notes as bar moves
   updateBarLayerX();
   schedDraw();
 },{passive:false});
@@ -721,8 +712,8 @@ function resizeCanvases(){
 function setGuitarHeight(){
   // WHY: Guitar gets a fixed % of viewport height to leave room for controls
   const vh=window.innerHeight;
-  const ctrlH=280; // approximate height of controls above/below
-  const h=Math.max(100,Math.min(220,vh-ctrlH));
+  const ctrlH=230; // approximate height of controls above/below
+  const h=Math.max(140,Math.min(320,vh-ctrlH));
   gWrap.style.height=h+'px';
 }
 
@@ -761,7 +752,7 @@ document.addEventListener('mousemove',e=>{
   const r=gWrap.getBoundingClientRect();
   const dx=(e.clientX-slideStartX)*(gc.width/r.width);
   slidePct=Math.max(0,Math.min(1,slideStartPct+dx/(gc.width-90)));
-  updateSlideFX(); schedDraw();
+  updateSlideFX(); updateAllPitch(); schedDraw();
 });
 
 document.addEventListener('mouseup',()=>{
@@ -812,7 +803,7 @@ gWrap.addEventListener('touchmove',e=>{
       const r=gWrap.getBoundingClientRect();
       const dx=(t.clientX-slideStartX)*(gc.width/r.width);
       slidePct=Math.max(0,Math.min(1,slideStartPct+dx/(gc.width-90)));
-      updateSlideFX(); schedDraw();
+      updateSlideFX(); updateAllPitch(); schedDraw();
     }
   }
 },{passive:false});
@@ -826,7 +817,7 @@ gWrap.addEventListener('touchmove',e=>{
       const r=gWrap.getBoundingClientRect();
       const dx=(t.clientX-slideStartX)*(gc.width/r.width);
       slidePct=Math.max(0,Math.min(1,slideStartPct+dx/(gc.width-90)));
-      updateSlideFX(); schedDraw();
+      updateSlideFX(); updateAllPitch(); schedDraw();
     }
   }
 },{passive:false});
@@ -928,7 +919,19 @@ function pedalLoop(ts){
 
 // ════════════════════════════════════════════════
 // AUDIO - Karplus-Strong voice pool
-// WHY voice pool: pre-allocated AudioNodes avoid per-note node creation
+// WHY updateAllPitch: when bar moves, retune all active voices in real time.
+// This mimics real steel guitar - sustained notes glide as the bar moves.
+function updateAllPitch(){
+  if(!ctx_a||!voicePool) return;
+  const now=ctx_a.currentTime;
+  const semitones=(slidePct-.35)*28;
+  const cents=semitones*100;
+  voicePool.forEach(v=>{
+    if(!v.active||!v.src||v.stopTime<now) return;
+    const f=v.baseFreq*Math.pow(2,cents/1200);
+    v.ksF.frequency.setTargetAtTime(f*6,now,.015);
+  });
+}
 // which causes GC pauses and main thread jank
 // ════════════════════════════════════════════════
 const POOL_SIZE=8;
@@ -961,7 +964,7 @@ function buildVoicePool(){
     ksF.connect(toneF); toneF.connect(midF); midF.connect(hiF); hiF.connect(env);
     env.connect(dest);
     if(reverbConv) env.connect(reverbConv);
-    voicePool.push({ksF,toneF,midF,hiF,env,src:null});
+    voicePool.push({ksF,toneF,midF,hiF,env,src:null,baseFreq:0,active:false});
   }
 }
 
@@ -998,6 +1001,9 @@ function playNote(freq,velN,centsOff,fgain,dur){
   ks.buffer=ksBuf; ks.loop=true;
   ks.connect(v.ksF);
   v.src=ks;
+  v.baseFreq=freq; // WHY: store base freq so updateAllPitch() can recalculate
+  v.active=true;
+  v.stopTime=now+dur+.8;
   ks.start(now); ks.stop(now+dur+.8);
 }
 
