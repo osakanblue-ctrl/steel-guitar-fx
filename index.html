@@ -47,6 +47,8 @@ body::after{content:'';position:fixed;inset:0;background-image:url("data:image/s
 .wbtn{padding:3px 8px;font-size:9px;letter-spacing:.08em;background:var(--panel);border:1px solid var(--border);color:var(--cream);cursor:pointer;border-radius:3px;transition:all .15s;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;flex-shrink:0;}
 .bbtn{padding:3px 8px;font-size:9px;letter-spacing:.08em;background:var(--panel);border:1px solid var(--border);color:#888;cursor:pointer;border-radius:3px;transition:all .15s;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;flex-shrink:0;}
 .bbtn.active{border-color:#aaa;background:#3a3a3a;color:#fff;}
+.pbtn{padding:3px 10px;font-size:9px;letter-spacing:.08em;background:#2a1a00;border:1px solid #6a4a10;color:#c89030;cursor:pointer;border-radius:3px;transition:all .1s;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;flex-shrink:0;user-select:none;-webkit-user-select:none;}
+.pbtn.ped-on{background:#c89030;border-color:#f8d060;color:#1a0a00;}
 .sp{flex:1;}
 
 /* Transport */
@@ -174,6 +176,13 @@ body::after{content:'';position:fixed;inset:0;background-image:url("data:image/s
     <div class="mode-bar">
       <button class="mbtn on" id="mb-play" onclick="setMode('play',this)">▶ Play Mode</button>
       <button class="mbtn"    id="mb-seq"  onclick="setMode('seq',this)">⊞ Sequencer</button>
+      <span style="color:#666;font-size:9px;margin-left:4px;font-family:'IBM Plex Mono',monospace;">PEDAL:</span>
+      <button class="pbtn" id="ped-A"
+        onmousedown="setPedal('A',true)" onmouseup="setPedal('A',false)" onmouseleave="setPedal('A',false)"
+        ontouchstart="setPedal('A',true);event.preventDefault()" ontouchend="setPedal('A',false)">A</button>
+      <button class="pbtn" id="ped-B"
+        onmousedown="setPedal('B',true)" onmouseup="setPedal('B',false)" onmouseleave="setPedal('B',false)"
+        ontouchstart="setPedal('B',true);event.preventDefault()" ontouchend="setPedal('B',false)">B</button>
     </div>
     <div class="guitar-wrap" id="guitar-wrap">
       <canvas id="guitar-canvas"></canvas>
@@ -265,6 +274,18 @@ let ctx_a=null, reverbConv=null, reverbGain=null, dryGain=null;
 let vibratoPhase=0, pitchCurrent=0;
 let selectedString=0;
 let slidePct=0.35; // steel bar horizontal position
+
+// ── PEDAL STEEL LOGIC ──
+// WHY: E9 pedal steel pedals raise specific strings while engaged.
+// Pedal A: strings 3+4 up +200 cents (whole tone) — classic A pedal on E9
+// Pedal B: strings 5+6 up +100 cents (semitone) — classic B pedal on E9
+// pedalCents[si] = current smoothed pitch offset for string index si
+const pedalStates={A:false, B:false};
+const PEDAL_TARGETS={
+  A:{strings:[2,3], cents:200}, // 0-indexed: string 3+4
+  B:{strings:[4,5], cents:100}  // 0-indexed: string 5+6
+};
+const pedalCents={}; // smoothed per-string pitch offset
 let _rafPending=false;
 function schedDraw(){
   if(_rafPending) return;
@@ -621,6 +642,13 @@ const WOODS={
 };
 let currentWood='maple';
 
+function setPedal(key,state){
+  // WHY: Mouse/touch pedal buttons mirror physical pedal behavior.
+  // Press and hold = pedal engaged; release = glide back to original pitch.
+  pedalStates[key]=state;
+  updatePedalBtnUI();
+  startPedalLoop();
+}
 function setBar(b,btn){
   currentBar=b;
   document.querySelectorAll('.bbtn').forEach(x=>x.classList.remove('active'));
@@ -795,7 +823,29 @@ function animVibration(){
     if(info.t<=0) delete vibratingStrings[si];
   });
   gctx.restore();
+  // Update pedal glide smoothing every frame
+  const now=performance.now();
+  updatePedalPitch(now-(animVibration._last||now));
+  animVibration._last=now;
   requestAnimationFrame(animVibration);
+}
+
+// Standalone pedal update loop (runs when no strings vibrating)
+let _pedalLoopRunning=false;
+function pedalLoop(){
+  const anyActive=Object.values(pedalStates).some(Boolean);
+  const anyGliding=Object.values(pedalCents).some(v=>Math.abs(v)>0.5);
+  if(!anyActive&&!anyGliding){_pedalLoopRunning=false;return;}
+  const now=performance.now();
+  updatePedalPitch(now-(pedalLoop._last||now));
+  pedalLoop._last=now;
+  requestAnimationFrame(pedalLoop);
+}
+function startPedalLoop(){
+  if(_pedalLoopRunning) return;
+  _pedalLoopRunning=true;
+  pedalLoop._last=performance.now();
+  requestAnimationFrame(pedalLoop);
 }
 
 // ════════════════════════════════════════════════
@@ -939,7 +989,9 @@ function pluckString(si,hitX){
   const semitones=(slidePct-.35)*28;
   const bar=getBar();
   const barTone=(FX.tn-.5)*18+(bar.highShelf||0)*3+(bar.mid||0)*1.5;
-  playNote(str.freq,1.0*(bar.atkM||1),semitones*100,barTone,1.4*(bar.susM||1));
+  // WHY add pedalCents[si]: pedal pitch offset is smoothed per-string, adds to bar position
+  const pOffset=pedalCents[si]||0;
+  playNote(str.freq,1.0*(bar.atkM||1),semitones*100+pOffset,barTone,1.4*(bar.susM||1));
   // Particles
   const r=gc2.getBoundingClientRect();
   const sy=stringYs[si]*(r.height/gc2.height);
@@ -1152,64 +1204,98 @@ async function buildReverb(){
   dryGain=ctx_a.createGain(); dryGain.gain.value=1-FX.rv*.5;
   reverbConv.connect(reverbGain); reverbGain.connect(ctx_a.destination);
   dryGain.connect(ctx_a.destination);
+  buildVoicePool(); // WHY: build pool after reverb so env can connect to reverbConv
 }
+// ── MIDI OUTPUT (for DAW sync) ──
+// WHY: Allows real-time pitch bend and pedal CC to be sent to DAW during playback.
+// Gemini proposal:弦ごとにMIDIチャンネルを分けてMPE的な構造にする。
+const MIDI_BEND_RANGE=12; // semitones; must match DAW's pitch bend range setting
+let midiOutput=null; // set after requestMIDIAccess
+
+function initMIDIOutput(access){
+  // Pick first available output
+  access.outputs.forEach(out=>{ if(!midiOutput) midiOutput=out; });
+  access.onstatechange=()=>{
+    midiOutput=null;
+    access.outputs.forEach(out=>{ if(!midiOutput) midiOutput=out; });
+  };
+}
+
+function sendPitchBend(ch, cents){
+  // WHY: MIDI pitch bend range = -8192..+8191, mapped over MIDI_BEND_RANGE semitones
+  if(!midiOutput) return;
+  const semitones=cents/100;
+  const normalized=semitones/MIDI_BEND_RANGE; // -1.0 to +1.0
+  const value=Math.round(normalized*8191+8192); // 0..16383
+  const msb=(value>>7)&0x7f;
+  const lsb=value&0x7f;
+  midiOutput.send([0xE0|(ch&0x0f), lsb, msb]);
+}
+
+function sendCC(ch, cc, val){
+  if(!midiOutput) return;
+  midiOutput.send([0xB0|(ch&0x0f), cc&0x7f, Math.max(0,Math.min(127,val))&0x7f]);
+}
+
+// WHY voice pool: Creating AudioNodes on every pluck causes GC pressure and
+// main-thread jank. Pre-built fixed graph - playNote only sets param values.
+const VOICE_POOL_SIZE=8;
+let voicePool=null;
+let voiceIdx=0;
+
+function buildVoicePool(){
+  voicePool=[];
+  const dest=dryGain||ctx_a.destination;
+  for(let i=0;i<VOICE_POOL_SIZE;i++){
+    const ksFilter=ctx_a.createBiquadFilter();
+    ksFilter.type='lowpass'; ksFilter.Q.value=0.5;
+    const toneFilter=ctx_a.createBiquadFilter();
+    toneFilter.type='lowpass'; toneFilter.Q.value=0.8;
+    const midFilter=ctx_a.createBiquadFilter();
+    midFilter.type='peaking'; midFilter.frequency.value=800; midFilter.Q.value=1.0;
+    const highFilter=ctx_a.createBiquadFilter();
+    highFilter.type='highshelf'; highFilter.frequency.value=3000;
+    const env=ctx_a.createGain(); env.gain.value=0;
+    ksFilter.connect(toneFilter);
+    toneFilter.connect(midFilter);
+    midFilter.connect(highFilter);
+    highFilter.connect(env);
+    env.connect(dest);
+    if(reverbConv) env.connect(reverbConv);
+    voicePool.push({ksFilter,toneFilter,midFilter,highFilter,env,src:null});
+  }
+}
+
 function playNote(freq,velN,centsOff,fgain,dur){
-  if(!ctx_a)return;
+  if(!ctx_a) return;
+  if(!voicePool) buildVoicePool();
   const vol=Math.pow(10,FX.out/20)*.5*velN;
   const now=ctx_a.currentTime;
-  const ratio=Math.pow(2,centsOff/1200);
-  const f=freq*ratio;
-
-  // Karplus-Strong string simulation
+  const f=freq*Math.pow(2,centsOff/1200);
+  const v=voicePool[voiceIdx%VOICE_POOL_SIZE]; voiceIdx++;
+  if(v.src){try{v.src.stop();}catch(e){} v.src=null;}
+  // Only alloc: the noise buffer (unavoidable per-note)
   const bufSize=Math.max(2,Math.round(ctx_a.sampleRate/f));
   const ksBuf=ctx_a.createBuffer(1,bufSize,ctx_a.sampleRate);
-  const ksData=ksBuf.getChannelData(0);
-  for(let i=0;i<bufSize;i++) ksData[i]=Math.random()*2-1;
-
-  const ks=ctx_a.createBufferSource();
-  ks.buffer=ksBuf;
-  ks.loop=true;
-
-  // String decay filter
-  const ksFilter=ctx_a.createBiquadFilter();
-  ksFilter.type='lowpass';
-  ksFilter.frequency.value=f*6;
-  ksFilter.Q.value=0.5;
-
-  // Wood tone filters
+  const d=ksBuf.getChannelData(0);
+  for(let i=0;i<bufSize;i++) d[i]=Math.random()*2-1;
+  // Update filter params only - no node creation
   const wd=getWood();
-  const toneFilter=ctx_a.createBiquadFilter();
-  toneFilter.type='lowpass';
-  toneFilter.frequency.value=wd.ffreq+fgain*60;
-  toneFilter.Q.value=0.8;
-  let lastFlt=toneFilter;
-  if(wd.mid!==0){
-    const mf=ctx_a.createBiquadFilter();
-    mf.type='peaking';mf.frequency.value=800;mf.gain.value=wd.mid;mf.Q.value=1.0;
-    lastFlt.connect(mf);lastFlt=mf;
-  }
-  if(wd.highShelf!==0){
-    const hf=ctx_a.createBiquadFilter();
-    hf.type='highshelf';hf.frequency.value=3000;hf.gain.value=wd.highShelf;
-    lastFlt.connect(hf);lastFlt=hf;
-  }
-
-  // Envelope
-  const atk=0.001*wd.atkM;
-  const env=ctx_a.createGain();
-  env.gain.setValueAtTime(0,now);
-  env.gain.linearRampToValueAtTime(vol,now+atk);
-  env.gain.setTargetAtTime(vol*.7,now+atk,.08*wd.susM);
-  env.gain.setTargetAtTime(0,now+dur*.5,dur*.35*wd.susM);
-
-  ks.connect(ksFilter);
-  ksFilter.connect(toneFilter);
-  lastFlt.connect(env);
-  env.connect(dryGain||ctx_a.destination);
-  if(reverbConv) env.connect(reverbConv);
-
-  ks.start(now);
-  ks.stop(now+dur+.8);
+  v.ksFilter.frequency.setValueAtTime(f*6,now);
+  v.toneFilter.frequency.setValueAtTime(wd.ffreq+(fgain||0)*60,now);
+  v.midFilter.gain.setValueAtTime(wd.mid||0,now);
+  v.highFilter.gain.setValueAtTime(wd.highShelf||0,now);
+  const atk=0.001*(wd.atkM||1);
+  v.env.gain.cancelScheduledValues(now);
+  v.env.gain.setValueAtTime(0,now);
+  v.env.gain.linearRampToValueAtTime(vol,now+atk);
+  v.env.gain.setTargetAtTime(vol*.7,now+atk,.08*(wd.susM||1));
+  v.env.gain.setTargetAtTime(0,now+dur*.5,dur*.35*(wd.susM||1));
+  const ks=ctx_a.createBufferSource();
+  ks.buffer=ksBuf; ks.loop=true;
+  ks.connect(v.ksFilter);
+  v.src=ks;
+  ks.start(now); ks.stop(now+dur+.8);
 }
 
 // ════════════════════════════════════════════════
@@ -1249,9 +1335,21 @@ function scheduleStep(){
   const fg=(FX.tn-.5)*18;
   strs.forEach((str,si)=>{
     const nn=N()[si][currentStep];
+    // WHY per-string MIDI channel: MPE-style, ch=si+1 (1-indexed).
+    // Allows DAW to track pitch bend and pedal state per string independently.
+    const midiCh=si; // 0-indexed for send functions (ch 0-5 = MIDI ch 1-6)
+    const pOffset=pedalCents[si]||0;
+    const totalCents=tc+pOffset;
+    // Send pitch bend for this string's channel
+    sendPitchBend(midiCh, totalCents);
+    // Send CC64 (sustain) as pedal indicator - 127=on, 0=off
+    const pedalOn=Object.keys(PEDAL_TARGETS).some(k=>
+      pedalStates[k]&&PEDAL_TARGETS[k].strings.includes(si)
+    );
+    sendCC(midiCh, 64, pedalOn?127:0);
     if(nn&&nn.on){
       const dur=Math.max(1,nn.dur||1);
-      playNote(str.freq,nn.vel/127,tc,fg,ss*dur*1.8);
+      playNote(str.freq,nn.vel/127,totalCents,fg,ss*dur*1.8);
       const had=!!vibratingStrings[si];
       vibratingStrings[si]={amp:7-si*.3,t:30,maxT:30,phase:0};
       if(!had) animVibration();
@@ -1374,91 +1472,105 @@ window.addEventListener('beforeunload',()=>{
 // MIDI EXPORT
 // ════════════════════════════════════════════════
 function exportMIDI(){
+  // WHY format 1 (multi-track): Each string gets its own MIDI track+channel.
+  // This enables MPE-style per-string pitch bend in DAW (Studio One, Cubase etc).
+  // MIDI_BEND_RANGE constant must match DAW's pitch bend range setting (default:12).
   const bpm=getBPM();
-  const ticksPerBeat=480;
-  const microsPerBeat=Math.round(60000000/bpm);
+  const TPB=480; // ticks per beat
+  const MPB=Math.round(60000000/bpm); // microseconds per beat
   const strs=TUNINGS[tuning].strings;
 
-  // MIDI note numbers for each string (middle C=60)
-  function freqToMidi(freq){
-    return Math.round(69+12*Math.log2(freq/440));
+  function freqToMidi(f){return Math.round(69+12*Math.log2(f/440));}
+
+  function writeVarLen(v){
+    const b=[]; b.unshift(v&0x7f); v>>=7;
+    while(v>0){b.unshift((v&0x7f)|0x80);v>>=7;} return b;
   }
 
-  // Build track events: [tick, type, ...data]
-  const events=[];
+  function buildTrack(events){
+    // events: [{tick, bytes:[]}]
+    events.sort((a,b)=>a.tick-b.tick);
+    const tb=[]; let last=0;
+    events.forEach(ev=>{
+      const d=ev.tick-last; last=ev.tick;
+      writeVarLen(d).forEach(b=>tb.push(b));
+      ev.bytes.forEach(b=>tb.push(b));
+    });
+    tb.push(0,0xff,0x2f,0); // end of track
+    return tb;
+  }
 
-  // Tempo event
-  events.push([0,'tempo',microsPerBeat]);
+  function bendBytes(ch, cents){
+    // WHY: Convert cents to MIDI pitch bend value based on MIDI_BEND_RANGE
+    const norm=(cents/100)/MIDI_BEND_RANGE;
+    const val=Math.round(norm*8191+8192);
+    const lsb=val&0x7f, msb=(val>>7)&0x7f;
+    return [0xE0|(ch&0xf), lsb, msb];
+  }
 
-  strs.forEach((str,si)=>{
+  // Track 0: tempo map
+  const tempoTrack=buildTrack([
+    {tick:0,bytes:[0xff,0x51,0x03,(MPB>>16)&0xff,(MPB>>8)&0xff,MPB&0xff]}
+  ]);
+
+  // Tracks 1..N: one per string
+  const stringTracks=strs.map((str,si)=>{
+    const ch=si; // MIDI ch 0-indexed (ch 0 = MIDI ch 1)
+    const midiNote=freqToMidi(str.freq);
+    const events=[];
+
+    // Pitch bend: BEND_RANGE setting message (RPN 0)
+    // WHY: Tells DAW this channel uses ±MIDI_BEND_RANGE semitones
+    events.push({tick:0,bytes:[0xB0|ch,101,0]}); // RPN MSB
+    events.push({tick:0,bytes:[0xB0|ch,100,0]}); // RPN LSB
+    events.push({tick:0,bytes:[0xB0|ch,6,MIDI_BEND_RANGE]}); // data entry MSB = range
+    events.push({tick:0,bytes:[0xB0|ch,38,0]}); // data entry LSB
+    events.push({tick:0,bytes:[0xB0|ch,101,127]}); // RPN null
+    events.push({tick:0,bytes:[0xB0|ch,100,127]});
+    // Initial bend = center
+    events.push({tick:0,bytes:bendBytes(ch,0)});
+
     for(let t=0;t<numSteps;t++){
       const nn=notesData[tuning][si][t];
-      if(nn&&nn.on){
-        const dur=Math.max(1,nn.dur||1);
-        const vel=Math.max(1,Math.min(127,nn.vel||100));
-        const midiNote=freqToMidi(str.freq);
-        const startTick=t*ticksPerBeat/4;
-        const endTick=startTick+dur*ticksPerBeat/4-1;
-        events.push([startTick,'noteOn',midiNote,vel]);
-        events.push([endTick,'noteOff',midiNote,0]);
-      }
+      if(!nn||!nn.on) continue;
+      const dur=Math.max(1,nn.dur||1);
+      const vel=Math.max(1,Math.min(127,nn.vel||100));
+      const startTick=t*TPB/4;
+      const endTick=startTick+dur*TPB/4-1;
+      // Slide bar pitch at this step
+      const barCents=(slidePct-.35)*28*100;
+      // Pedal offset for this string
+      const pOffset=pedalCents[si]||0;
+      const totalCents=barCents+pOffset;
+      // Emit pitch bend before note on
+      events.push({tick:startTick,bytes:bendBytes(ch,totalCents)});
+      events.push({tick:startTick,bytes:[0x90|ch,midiNote,vel]});
+      events.push({tick:endTick,bytes:[0x80|ch,midiNote,0]});
     }
+    return buildTrack(events);
   });
 
-  // Sort by tick
-  events.sort((a,b)=>a[0]-b[0]);
-
-  // Build MIDI bytes
-  function writeVarLen(v){
-    const bytes=[];
-    bytes.unshift(v&0x7f);
-    v>>=7;
-    while(v>0){bytes.unshift((v&0x7f)|0x80);v>>=7;}
-    return bytes;
-  }
-
-  const trackBytes=[];
-  let lastTick=0;
-
-  events.forEach(ev=>{
-    const delta=ev[0]-lastTick;
-    lastTick=ev[0];
-    writeVarLen(delta).forEach(b=>trackBytes.push(b));
-    if(ev[1]==='tempo'){
-      trackBytes.push(0xff,0x51,0x03);
-      trackBytes.push((ev[2]>>16)&0xff,(ev[2]>>8)&0xff,ev[2]&0xff);
-    } else if(ev[1]==='noteOn'){
-      trackBytes.push(0x90,ev[2],ev[3]);
-    } else if(ev[1]==='noteOff'){
-      trackBytes.push(0x80,ev[2],0);
-    }
-  });
-  // End of track
-  trackBytes.push(0,0xff,0x2f,0);
-
-  // MIDI file header
+  // Assemble MIDI file (format 1)
+  const allTracks=[tempoTrack,...stringTracks];
+  const numTracks=allTracks.length;
   const header=[
-    0x4d,0x54,0x68,0x64, // MThd
-    0,0,0,6,             // chunk length
-    0,0,                 // format 0
-    0,1,                 // 1 track
-    (ticksPerBeat>>8)&0xff, ticksPerBeat&0xff // ticks/beat
+    0x4d,0x54,0x68,0x64,0,0,0,6, // MThd
+    0,1,                          // format 1
+    (numTracks>>8)&0xff,numTracks&0xff,
+    (TPB>>8)&0xff,TPB&0xff
   ];
+  const trackChunks=allTracks.flatMap(tb=>[
+    0x4d,0x54,0x72,0x6b,          // MTrk
+    (tb.length>>24)&0xff,(tb.length>>16)&0xff,(tb.length>>8)&0xff,tb.length&0xff,
+    ...tb
+  ]);
 
-  // Track chunk
-  const trackLen=trackBytes.length;
-  const track=[
-    0x4d,0x54,0x72,0x6b, // MTrk
-    (trackLen>>24)&0xff,(trackLen>>16)&0xff,(trackLen>>8)&0xff,trackLen&0xff,
-    ...trackBytes
-  ];
-
-  const midiBytes=new Uint8Array([...header,...track]);
+  const midiBytes=new Uint8Array([...header,...trackChunks]);
   const blob=new Blob([midiBytes],{type:'audio/midi'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
   a.href=url;
-  a.download=`steelguitar_${tuning}_${currentSlot}.mid`;
+  a.download=`steelguitar_${tuning}_${currentSlot}_ch.mid`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -1492,6 +1604,56 @@ if('serviceWorker' in navigator){
 
 // Install prompt (Android Chrome)
 let deferredPrompt=null;
+// ── PEDAL PITCH GLIDE UPDATE ──
+// WHY: Called every animation frame to smoothly glide pedalCents toward target.
+// Uses same FX.gl glide time as the pitch bend slider for consistency.
+function updatePedalPitch(dt){
+  Object.keys(PEDAL_TARGETS).forEach(key=>{
+    const pd=PEDAL_TARGETS[key];
+    const target=pedalStates[key]?pd.cents:0;
+    pd.strings.forEach(si=>{
+      const cur=pedalCents[si]||0;
+      // Exponential smoothing - same approach as pitchCurrent glide
+      const glideMs=(FX.gl||0.5)*400+20;
+      const alpha=1-Math.exp(-dt/glideMs);
+      pedalCents[si]=cur+(target-cur)*alpha;
+    });
+  });
+}
+
+// ── MIDI INPUT ──
+// WHY: Allows external MIDI pads to trigger pedals.
+// Note 36 (C1) = Pedal A, Note 38 (D1) = Pedal B.
+// ノートON→ペダルON、ノートOFF→ペダルOFF。
+function onMIDIMessage(msg){
+  const [status,note,velocity]=msg.data;
+  const type=status&0xf0;
+  const on=(type===0x90&&velocity>0);
+  const off=(type===0x80||(type===0x90&&velocity===0));
+  if(note===36){pedalStates.A=(on?true:off?false:pedalStates.A); updatePedalBtnUI(); startPedalLoop();}
+  if(note===38){pedalStates.B=(on?true:off?false:pedalStates.B); updatePedalBtnUI(); startPedalLoop();}
+}
+function initMIDI(){
+  if(!navigator.requestMIDIAccess) return;
+  navigator.requestMIDIAccess({sysex:false}).then(access=>{
+    function connectInputs(){
+      access.inputs.forEach(input=>{input.onmidimessage=onMIDIMessage;});
+    }
+    connectInputs();
+    initMIDIOutput(access); // WHY: also grab output for DAW pitch bend / CC send
+    access.onstatechange=()=>{connectInputs(); initMIDIOutput(access);};
+  }).catch(()=>{});
+}
+initMIDI();
+
+// Update pedal button visual state
+function updatePedalBtnUI(){
+  ['A','B'].forEach(k=>{
+    const btn=document.getElementById('ped-'+k);
+    if(btn) btn.classList.toggle('ped-on',pedalStates[k]);
+  });
+}
+
 window.addEventListener('beforeinstallprompt', e=>{
   e.preventDefault();
   deferredPrompt=e;
