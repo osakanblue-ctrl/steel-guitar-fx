@@ -674,17 +674,34 @@ gWrap.addEventListener('touchstart',e=>{
   for(let i=0;i<e.changedTouches.length;i++){
     const t=e.changedTouches[i];
     const {mx,my}=getGuitarCoords(t.clientX,t.clientY);
-    if(Math.abs(mx-getSlideX())<28&&my>4&&my<gc.height-4){
-      // Bar finger
+    const nearBar=Math.abs(mx-getSlideX())<28&&my>4&&my<gc.height-4;
+    console.log(`[TS] id=${t.identifier} mx=${mx.toFixed(0)} slideX=${getSlideX().toFixed(0)} nearBar=${nearBar} existing=${activeTouches[t.identifier]}`);
+    if(nearBar){
       activeTouches[t.identifier]='bar';
       slideDragging=true; slideStartX=t.clientX; slideStartPct=slidePct;
     } else if(mode==='play'){
-      // WHY check: if this ID is already 'bar', don't overwrite it
       if(activeTouches[t.identifier]==='bar') continue;
       activeTouches[t.identifier]='string';
       TUNINGS[tuning].strings.forEach((_,si)=>{
         if(Math.abs(my-stringYs[si])<22) pluckString(si,mx);
       });
+    }
+  }
+  console.log('[TS] activeTouches:', JSON.stringify(activeTouches), 'slideDragging:', slideDragging);
+},{passive:false});
+
+gWrap.addEventListener('touchmove',e=>{
+  if(mode==='seq') return;
+  e.preventDefault();
+  for(let i=0;i<e.changedTouches.length;i++){
+    const t=e.changedTouches[i];
+    const role=activeTouches[t.identifier];
+    if(role!=='bar') console.log(`[TM] id=${t.identifier} role=${role} - SKIPPED`);
+    if(role==='bar'&&slideDragging){
+      const r=gWrap.getBoundingClientRect();
+      const dx=(t.clientX-slideStartX)*(gc.width/r.width);
+      slidePct=Math.max(0,Math.min(1,slideStartPct+dx/(gc.width-90)));
+      updateSlideFX(); schedDraw();
     }
   }
 },{passive:false});
