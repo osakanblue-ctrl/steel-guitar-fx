@@ -808,14 +808,16 @@ function roundRect(ctx,x,y,w,h,r){
 
 // Hit particle animation
 function spawnHit(x,y,col){
-  for(let i=0;i<14;i++){
+  const pCount=(mode==='seq')?6:14;
+  for(let i=0;i<pCount;i++){
     const angle=Math.random()*Math.PI*2;
     const speed=Math.random()*3+1;
     hitParticles.push({x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,life:1,col});
   }
-  if(!animRunning) animHits();
+  startAnimLoop(); // WHY: unified loop handles particles now
 }
-let animRunning=false;
+// animHits removed - merged into animLoop above
+
 function animHits(){
   animRunning=true;
   hctx.clearRect(0,0,gc2.width,gc2.height);
@@ -834,35 +836,69 @@ function animHits(){
 
 // String vibration animation
 let vibratingStrings={};
-function animVibration(){
-  if(Object.keys(vibratingStrings).length===0) return;
-  schedDraw();
-  // Draw vibration waves over strings
-  const strs=TUNINGS[tuning].strings;
-  const W=gc.width, strStart=60, strEnd=W-30;
-  gctx.save();
-  roundRect(gctx,0,0,W,gc.height,12); gctx.clip();
-  Object.entries(vibratingStrings).forEach(([si,info])=>{
-    const y=stringYs[+si];
-    const str=strs[+si];
-    const amp=info.amp*(info.t/info.maxT);
-    gctx.strokeStyle=str.col;
-    gctx.lineWidth=str.thick*.7;
-    gctx.globalAlpha=.6;
-    gctx.beginPath();
-    gctx.moveTo(strStart,y);
-    for(let x=strStart;x<strEnd;x+=2){
-      const wave=Math.sin((x-strStart)*.08+info.phase)*amp;
-      gctx.lineTo(x,y+wave);
-    }
-    gctx.stroke();
-    gctx.globalAlpha=1;
-    info.t-=1; info.phase+=.18;
-    if(info.t<=0) delete vibratingStrings[si];
-  });
-  gctx.restore();
-  requestAnimationFrame(animVibration);
+// WHY unified loop: merges animVibration + animHits into one RAF loop.
+// Previously 2 separate RAF loops competed. Now one loop handles both,
+// and exits cleanly when nothing is animating.
+let _animLoopRunning=false;
+function animLoop(){
+  const hasVib=Object.keys(vibratingStrings).length>0;
+  const hasPart=hitParticles.length>0;
+  if(!hasVib&&!hasPart){_animLoopRunning=false; return;}
+
+  // Vibration
+  if(hasVib){
+    const strs=TUNINGS[tuning].strings;
+    const W=gc.width, strStart=60, strEnd=W-30;
+    gctx.save();
+    roundRect(gctx,0,0,W,gc.height,12); gctx.clip();
+    Object.entries(vibratingStrings).forEach(([si,info])=>{
+      const y=stringYs[+si];
+      const str=strs[+si];
+      const amp=info.amp*(info.t/info.maxT);
+      gctx.strokeStyle=str.col;
+      gctx.lineWidth=str.thick*.7;
+      gctx.globalAlpha=.6;
+      gctx.beginPath();
+      gctx.moveTo(strStart,y);
+      for(let x=strStart;x<strEnd;x+=2){
+        const wave=Math.sin((x-strStart)*.08+info.phase)*amp;
+        gctx.lineTo(x,y+wave);
+      }
+      gctx.stroke();
+      gctx.globalAlpha=1;
+      info.t-=1; info.phase+=.18;
+      if(info.t<=0) delete vibratingStrings[si];
+    });
+    gctx.restore();
+  }
+
+  // Particles
+  if(hasPart){
+    hctx.clearRect(0,0,gc2.width,gc2.height);
+    hitParticles=hitParticles.filter(p=>{
+      p.x+=p.vx; p.y+=p.vy; p.vy+=.08; p.life-=.06;
+      if(p.life<=0) return false;
+      hctx.globalAlpha=p.life*.8;
+      hctx.fillStyle=p.col;
+      hctx.beginPath();
+      hctx.arc(p.x,p.y,2.5,0,Math.PI*2);
+      hctx.fill();
+      return true;
+    });
+    hctx.globalAlpha=1;
+  } else {
+    hctx.clearRect(0,0,gc2.width,gc2.height);
+  }
+
+  requestAnimationFrame(animLoop);
 }
+function startAnimLoop(){
+  if(_animLoopRunning) return;
+  _animLoopRunning=true;
+  requestAnimationFrame(animLoop);
+}
+// Keep old names as aliases for compatibility
+function animVibration(){ startAnimLoop(); }
 
 // ════════════════════════════════════════════════
 // INTERACTION
@@ -1042,6 +1078,7 @@ function buildSeqGrid(){
   });
   renderAllNoteBlocks();
   buildVelRow();
+  buildCellCache();
 }
 
 function renderAllNoteBlocks(){
@@ -1284,19 +1321,49 @@ function stopSeq(){
   document.getElementById('play-ico').innerHTML='<polygon points="5,3 19,12 5,21"/>';
   drawGuitar();
 }
+// WHY cached cells: querySelectorAll on every step causes layout thrash.
+// Pre-cache all .scell elements by step index at grid build time.
+let seqCellCache={}; // {stepIndex: [el, el, ...]}
+function buildCellCache(){
+  seqCellCache={};
+  document.querySelectorAll('.scell').forEach(el=>{
+    const t=+el.dataset.t;
+    if(!seqCellCache[t]) seqCellCache[t]=[];
+    seqCellCache[t].push(el);
+  });
+}
+let _lastPH=-1;
+function updatePH(step){
+  // Remove previous highlight
+  if(_lastPH>=0&&seqCellCache[_lastPH]){
+    seqCellCache[_lastPH].forEach(el=>el.classList.remove('ph'));
+  }
+  // Add new highlight
+  if(seqCellCache[step]){
+    seqCellCache[step].forEach(el=>el.classList.add('ph'));
+  }
+  _lastPH=step;
+}
+
+// Cache bdisp and pitch-big elements
+let _bdispEl=null, _pitchEl=null;
+
 function scheduleStep(){
   if(!playing)return;
   const bpm=getBPM(),ss=60/bpm/4;
   const strs=TUNINGS[tuning].strings;
-  clearPH();
-  document.querySelectorAll(`.scell[data-t="${currentStep}"]`).forEach(el=>el.classList.add('ph'));
-  document.getElementById('bdisp').textContent=`${Math.floor(currentStep/4)+1}.${(currentStep%4)+1}`;
+
+  // Fast DOM updates using cached refs
+  if(!_bdispEl) _bdispEl=document.getElementById('bdisp');
+  if(!_pitchEl) _pitchEl=document.getElementById('pitch-big');
+  updatePH(currentStep);
+  _bdispEl.textContent=`${Math.floor(currentStep/4)+1}.${(currentStep%4)+1}`;
 
   vibratoPhase+=FX.vr*ss;
   const vib=FX.vd*60*Math.sin(vibratoPhase*2*Math.PI);
   pitchCurrent+=(FX.pb-pitchCurrent)*(1-Math.exp(-ss/(FX.gl*.001+.001)));
   const tc=pitchCurrent*100+vib;
-  document.getElementById('pitch-big').textContent=(pitchCurrent>=0?'+':'')+pitchCurrent.toFixed(1);
+  _pitchEl.textContent=(pitchCurrent>=0?'+':'')+pitchCurrent.toFixed(1);
 
   const fg=(FX.tn-.5)*18;
   strs.forEach((str,si)=>{
@@ -1309,26 +1376,26 @@ function scheduleStep(){
       vibratingStrings[si]={amp:7-si*.3,t:30,maxT:30,phase:0};
       if(!had) animVibration();
       spawnHit(getSlideX(),stringYs[si]||0,str.col);
-      // MIDI out: pitch bend per string channel
-      sendPitchBend(si, tc+pOffset);
+      sendPitchBend(si,tc+pOffset);
       const pedalOn=Object.keys(PEDAL_TARGETS).some(k=>pedalStates[k]&&PEDAL_TARGETS[k].strings.includes(si));
-      sendCC(si, 64, pedalOn?127:0);
+      sendCC(si,64,pedalOn?127:0);
     }
   });
-  // WHY schedDraw: avoids competing with touchmove drawGuitar on main thread
   schedDraw();
 
   currentStep=(currentStep+1)%numSteps;
   if(currentStep===0&&oneShot&&!loopOn){stopSeq();return;}
   stepTimer=setTimeout(scheduleStep,ss*1000-4);
 }
-function clearPH(){document.querySelectorAll('.scell.ph').forEach(el=>el.classList.remove('ph'));}
+function clearPH(){updatePH(-1); _lastPH=-1;}
 
+let _vuEl=null;
 function animVU(){
   if(!playing)return;
+  if(!_vuEl) _vuEl=document.getElementById('vu-fill');
   const t=performance.now()*.001;
   const s=.5+Math.sin(t*2.1)*.22+Math.sin(t*5.3)*.1;
-  document.getElementById('vu-fill').style.width=Math.min(100,s*Math.pow(10,FX.out/20)*72)+'%';
+  _vuEl.style.width=Math.min(100,s*Math.pow(10,FX.out/20)*72)+'%';
   requestAnimationFrame(animVU);
 }
 
