@@ -77,6 +77,8 @@ If you try it out, I'd love to hear:
 - How playable it feels
 - Anything that seems off
 
+- Built with: Web Audio API, HTML5 Canvas, and Vanilla JavaScript (No heavy frameworks).
+
 **Steel guitar players — real instrument audio samples are very welcome.**  
 Feel free to open an Issue or reach out on X.
 
